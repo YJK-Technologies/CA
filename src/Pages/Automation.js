@@ -10,7 +10,12 @@ import { saveAs } from "file-saver";
 import { Button, Form, Row, Col } from 'react-bootstrap';
 import { FaPlus, FaMinus, FaCopy, FaCheckCircle } from 'react-icons/fa';
 import { provideGlobalGridOptions } from 'ag-grid-community';
-import { ModuleRegistry, AllCommunityModule, _getHeaderCheckbox } from 'ag-grid-community';
+import { ModuleRegistry, AllCommunityModule } from 'ag-grid-community';
+import { getTableSQL, getStoredProcSQL } from './sqlGenerator';
+import { getNodeSingleCrudScript, getNodeLoopCrudScripts } from './nodeGenerator';
+import { getFrontendSearchDesignCode, getFrontendAddDesignCode } from './frontGenerator';
+import * as XLSX from "xlsx";
+import { getFrontendCombinedDesignCode } from './frontGenerator';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 provideGlobalGridOptions({ theme: "legacy" });
@@ -21,13 +26,240 @@ const Automation = () => {
     const [sqlPreview, setSqlPreview] = useState('');
     const [rowData, setRowData] = useState([]);
     const [detailsRowData, setDetailsRowData] = useState([]);
-    const gridRef = useRef();
+    const objectGridRef = useRef();
+    const mainGridRef = useRef();
     const previewRef = useRef(null);
     const [uiPreview, setUiPreview] = useState(null);
     const [uiPreviewEnabled, setUiPreviewEnabled] = useState(false);
     const [copied, setCopied] = useState(false);
     const [objectRowData, setObjectRowData] = useState([]);
     const [detailsDefs, setDetailsDefs] = useState(null);
+    const [enableAudit, setEnableAudit] = useState(false);
+    const fileInputRef = useRef();
+    const [screenType, setScreenType] = useState("combined");
+    const [test, setTest] = useState('')
+
+    const validDataTypes = [
+        'INT', 'BIGINT', 'VARCHAR', 'TEXT', 'FLOAT',
+        'DATE', 'DATETIME', 'BIT', 'NVARCHAR',
+        'VARBINARY', 'DECIMAL', 'GRID'
+    ];
+
+    const constraintMap = {
+        "PRIMARY KEY": "PK",
+        "PRIMARYKEY": "PK",
+        "PK": "PK",
+
+        "NOT NULL": "NN",
+        "NOTNULL": "NN",
+        "NN": "NN",
+
+        "UNIQUE": "UQ",
+        "UQ": "UQ",
+
+        "FOREIGN KEY": "FK",
+        "FOREIGNKEY": "FK",
+        "FK": "FK",
+
+        "DEFAULT": "DF",
+        "DF": "DF",
+
+        "CHECK": "CHK",
+        "CHK": "CHK",
+
+        "AUTO INCREMENT": "AI",
+        "AUTOINCREMENT": "AI",
+        "AI": "AI"
+    };
+
+    const validConstraints = ["PK", "NN", "UQ", "FK", "DF", "CHK", "AI"];
+
+    const downloadExcelTemplate = () => {
+        const headers = [
+            "fieldName",
+            "dataType",
+            "size",
+            "constraints",
+            "referenceTable",
+            "referenceColumn",
+            "defaultValue",
+            "checkCondition",
+            "designSCSelect",
+            "designSCOrderNo",
+            "designSCButtons",
+            "designAddScreenSelect",
+            "designAddOrderNo",
+            "addScreenTooltip",
+            "designAddScreenButtons",
+            "addScreenButtonPosition"
+        ];
+
+        const data = [headers];
+
+        const ws = XLSX.utils.aoa_to_sheet(data);
+
+        // Column width
+        ws["!cols"] = headers.map(() => ({ wch: 22 }));
+
+        // Add dropdowns (Data Validation)
+        ws["!dataValidation"] = {
+            B2: {
+                type: "list",
+                allowBlank: 1,
+                showInputMessage: 1,
+                showErrorMessage: 1,
+                formula1: '"INT,BIGINT,VARCHAR,TEXT,FLOAT,DATE,DATETIME,BIT,NVARCHAR,VARBINARY,DECIMAL,GRID"'
+            },
+            D2: {
+                type: "list",
+                allowBlank: 1,
+                showInputMessage: 1,
+                showErrorMessage: 1,
+                formula1: '"Primary Key,Not Null,Unique,Foreign Key,Default,Check,Auto Increment"'
+            }
+        };
+
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Template");
+
+        XLSX.writeFile(wb, "Grid_Template.xlsx");
+    };
+
+    const handleGenerateScreen = () => {
+
+    let code = "";
+
+    if (screenType === "search") {
+        code = getFrontendSearchDesignCode(mainGridRef, objectRowData);
+    }
+
+    else if (screenType === "add") {
+        code = getFrontendAddDesignCode(mainGridRef, objectRowData, detailsRowData);
+    }
+
+    else if (screenType === "add-grid") {
+        // Same add function, but GRID fields will render automatically
+        code = getFrontendAddDesignCode(mainGridRef, objectRowData, detailsRowData);
+    }
+
+    else if (screenType === "combined") {
+        code = getFrontendCombinedDesignCode(
+            mainGridRef,
+            objectRowData,
+            detailsRowData
+        );
+    }
+
+    if (!code) {
+        alert("No valid data to generate screen");
+        return;
+    }
+
+    setSqlPreview(code);
+
+    setUiPreview(
+        <div>
+            {renderReactCodeFromString(code)}
+        </div>
+    );
+
+    setUiPreviewEnabled(true);
+};
+
+    const handleExcelUpload = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+
+        reader.onload = (evt) => {
+            const binaryStr = evt.target.result;
+            const workbook = XLSX.read(binaryStr, { type: "binary" });
+            const sheet = workbook.Sheets[workbook.SheetNames[0]];
+            const data = XLSX.utils.sheet_to_json(sheet);
+
+            validateAndLoadData(data);
+        };
+
+        reader.readAsBinaryString(file);
+    };
+
+    const validateAndLoadData = (data) => {
+        const errors = [];
+
+        const formattedData = data.map((row, index) => {
+            const rowNum = index + 2; // Excel row (header = row 1)
+
+            if (!row.fieldName) {
+                errors.push(`Row ${rowNum}: fieldName is required`);
+            }
+
+            const dataType = row.dataType?.toUpperCase();
+
+            if (!validDataTypes.includes(dataType)) {
+                errors.push(`Row ${rowNum}: Invalid dataType`);
+            }
+
+            let constraintsArray = [];
+
+            if (row.constraints) {
+                constraintsArray = row.constraints
+                    .split(",")
+                    .map(c => c.trim())
+                    .map(c => {
+                        const key = c.toUpperCase().replace(/\s+/g, " ").trim();
+                        return constraintMap[key];
+                    });
+
+                constraintsArray.forEach(c => {
+                    if (!c || !validConstraints.includes(c)) {
+                        errors.push(`Row ${rowNum}: Invalid constraint`);
+                    }
+                });
+            }
+
+            // FK validation
+            if (constraintsArray.includes("FK")) {
+                if (!row.referenceTable || !row.referenceColumn) {
+                    errors.push(`Row ${rowNum}: FK requires referenceTable & referenceColumn`);
+                }
+            }
+
+            // DF validation
+            if (constraintsArray.includes("DF") && !row.defaultValue) {
+                errors.push(`Row ${rowNum}: DF requires defaultValue`);
+            }
+
+            // CHK validation
+            if (constraintsArray.includes("CHK") && !row.checkCondition) {
+                errors.push(`Row ${rowNum}: CHK requires checkCondition`);
+            }
+
+            // AI validation
+            if (
+                constraintsArray.includes("AI") &&
+                !["INT", "BIGINT"].includes(dataType)
+            ) {
+                errors.push(`Row ${rowNum}: AI only allowed for INT/BIGINT`);
+            }
+
+            return {
+    ...row,
+    dataType,
+    constraints: constraintsArray,
+
+    // ✅ FIX: map correct field
+    addScreenButtonPosition: row.addScreenButtonPosition || row.designAddScreenButtonPosition || ""
+};
+        });
+
+        if (errors.length > 0) {
+            alert(errors.join("\n"));
+            return;
+        }
+
+        setRowData(formattedData);
+    };
 
     useEffect(() => {
         const existingLink = document.querySelector("link[href*='bootstrap-icons']");
@@ -38,6 +270,12 @@ const Automation = () => {
             document.head.appendChild(link);
         }
     }, []);
+
+    useEffect(() => {
+        if (mainGridRef.current?.api) {
+            updateColumnVisibility(mainGridRef.current.api);
+        }
+    }, [sqlPreview, rowData]);
 
     const handleKeyDown = (e) => {
         if (e.key === "Enter") {
@@ -63,6 +301,8 @@ const Automation = () => {
             setObjectRowData((prev) => [...prev, newRow]);
         }
     };
+
+
 
     const handleDelete = (index) => {
         setObjectRowData((prevData) => prevData.filter((_, i) => i !== index));
@@ -105,7 +345,10 @@ const Automation = () => {
             designSCSelect: '',
             designSCOrderNo: '',
             designAddScreenSelect: '',
-            designAddOrderNo: ''
+            designAddOrderNo: '',
+            constraints: [],
+            defaultValue: '',
+            checkCondition: '',
         };
 
         const updatedRows = [...rowData];
@@ -113,6 +356,103 @@ const Automation = () => {
         updatedRows.splice(rowIndex + 1, 0, newRow);
 
         setRowData(updatedRows);
+    };
+
+    const constraintOptions = [
+        { value: "PK", label: "Primary Key" },
+        { value: "NN", label: "Not Null" },
+        { value: "UQ", label: "Unique" },
+        { value: "FK", label: "Foreign Key" },
+        { value: "DF", label: "Default" },
+        { value: "CHK", label: "Check Constraint" },
+        { value: "AI", label: "Auto Increment" } // Added
+    ];
+
+    const updateColumnVisibility = (api) => {
+        if (!api) return;
+
+        const updatedData = [];
+        api.forEachNodeAfterFilterAndSort(node => updatedData.push(node.data));
+
+        const showFK = updatedData.some(row => row.constraints?.includes("FK"));
+        const showDF = updatedData.some(row => row.constraints?.includes("DF"));
+        const showCHK = updatedData.some(row => row.constraints?.includes("CHK"));
+
+        api.setColumnsVisible(["referenceTable", "referenceColumn"], showFK);
+        api.setColumnsVisible(["defaultValue"], showDF);
+        api.setColumnsVisible(["checkCondition"], showCHK);
+    };
+
+    const ConstraintRenderer = (props) => {
+        const value = props.value || [];
+
+        return (
+            <Select
+                options={constraintOptions}
+                isMulti
+                isClearable
+                placeholder="Select Constraints"
+
+                closeMenuOnSelect={false}
+                blurInputOnSelect={false}
+
+                hideSelectedOptions={false}   // ✅ FIX: keep selected items visible
+
+                value={constraintOptions.filter(opt => value.includes(opt.value))}
+
+                onChange={(selected) => {
+                    let values = selected ? selected.map(s => s.value) : [];
+
+                    if (
+                        values.includes("AI") &&
+                        !["INT", "BIGINT"].includes(props.data.dataType?.toUpperCase())
+                    ) {
+                        alert("Auto Increment allowed only for INT or BIGINT");
+                        values = values.filter(v => v !== "AI");
+                    }
+
+                    props.node.setDataValue("constraints", values);
+
+                    if (!values.includes("FK")) {
+                        props.node.setDataValue("referenceTable", "");
+                        props.node.setDataValue("referenceColumn", "");
+                    }
+
+                    if (!values.includes("DF")) {
+                        props.node.setDataValue("defaultValue", "");
+                    }
+
+                    if (!values.includes("CHK")) {
+                        props.node.setDataValue("checkCondition", "");
+                    }
+
+                    setTimeout(() => updateColumnVisibility(props.api), 0);
+                }}
+
+                components={{
+                    MultiValue: () => null, // hide chips
+
+                    ValueContainer: ({ children }) => {
+                        const count = value.length;
+
+                        return (
+                            <div style={{ paddingLeft: "6px", fontSize: "12px" }}>
+                                {count > 0 ? `${count} selected` : children}
+                            </div>
+                        );
+                    }
+                }}
+
+                menuPortalTarget={document.body}
+
+                styles={{
+                    menuPortal: base => ({ ...base, zIndex: 9999 }),
+                    control: base => ({ ...base, minHeight: "30px", height: "30px" }),
+                    valueContainer: base => ({ ...base, height: "30px", padding: "0 6px" }),
+                    indicatorsContainer: base => ({ ...base, height: "30px" })
+                }}
+            />
+        );
     };
 
     const columnDefs = [
@@ -158,7 +498,7 @@ const Automation = () => {
             editable: true,
             cellEditor: 'agSelectCellEditor',
             cellEditorParams: {
-                values: ['INT', 'VARCHAR', 'TEXT', 'FLOAT', 'DATE', 'DATETIME', 'BIT', 'NVARCHAR', 'VARBINARY', 'DECIMAL', 'GRID'],
+                values: ['INT', 'BIGINT', 'VARCHAR', 'TEXT', 'FLOAT', 'DATE', 'DATETIME', 'BIT', 'NVARCHAR', 'VARBINARY', 'DECIMAL', 'GRID'],
             },
             minWidth: 100,
         },
@@ -170,62 +510,36 @@ const Automation = () => {
             minWidth: 80,
         },
         {
-            field: 'notNull',
-            headerName: 'NOT NULL',
-            cellRenderer: params => (
-                <input
-                    type="checkbox"
-                    className="form-check-input"
-                    checked={params.value || false}
-                    onChange={e => {
-                        params.node.setDataValue('notNull', e.target.checked);
-                    }}
-                />
-            ),
-            // maxWidth: 100,
-            minWidth: 100,
+            field: 'constraints',
+            headerName: 'Constraints',
+            cellRenderer: ConstraintRenderer,
+            editable: false,
+            minWidth: 220
         },
         {
-            field: 'primaryKey',
-            headerName: 'Primary Key',
-            cellRenderer: params => (
-                <input
-                    type="checkbox"
-                    className="form-check-input"
-                    checked={params.value || false}
-                    onChange={e => {
-                        params.node.setDataValue('primaryKey', e.target.checked);
-                    }}
-                />
-            ),
-            // maxWidth: 120,
-            minWidth: 120,
+            field: 'defaultValue',
+            headerName: 'Default Value',
+            editable: true,
+            hide: true,
         },
         {
-            field: 'isForeignKey',
-            headerName: 'Foreign Key',
-            cellRenderer: params => (
-                <input
-                    type="checkbox"
-                    className="form-check-input"
-                    checked={params.value || false}
-                    onChange={e => {
-                        params.node.setDataValue('isForeignKey', e.target.checked);
-                    }}
-                />
-            ),
-            // maxWidth: 120,
-            minWidth: 120,
+            field: 'checkCondition',
+            headerName: 'Check Condition',
+            editable: true,
+            hide: true,
         },
+
         {
             field: 'referenceTable',
             headerName: 'Ref Table',
-            editable: true
+            editable: true,
+            hide: true,
         },
         {
             field: 'referenceColumn',
             headerName: 'Ref Column',
-            editable: true
+            editable: true,
+            hide: true,
         },
         {
             field: 'designSCSelect',
@@ -234,7 +548,7 @@ const Automation = () => {
             filter: false,
             cellEditor: 'agSelectCellEditor',
             cellEditorParams: {
-                values: ["Text", "Dropdown", "Date"]
+                values: ["Text", "Dropdown", "Date", "Toggle", "Number"]
             },
             // maxWidth: 150,
             minWidth: 150,
@@ -262,7 +576,7 @@ const Automation = () => {
             headerName: 'Design Add Screen Select',
             cellEditor: 'agSelectCellEditor',
             cellEditorParams: {
-                values: ["Text", "Dropdown", "Date", "File", "Number", "Text Area", "Grid"]
+                values: ["Text", "Dropdown", "Date", "File", "Number", "Text Area", "Grid", "Toggle"]
             },
         },
         {
@@ -336,7 +650,10 @@ const Automation = () => {
                 designSCSelect: '',
                 designSCOrderNo: '',
                 designAddScreenSelect: '',
-                designAddOrderNo: ''
+                designAddOrderNo: '',
+                constraints: [],
+                defaultValue: '',
+                checkCondition: '',
             },
         ]);
     };
@@ -377,314 +694,35 @@ const Automation = () => {
         });
     };
 
-    const getUDDStatements = (rows) => {
-        let uddScript = '';
-        rows.forEach(col => {
-            if (!col.fieldName || !col.dataType) return;
-
-            const dataType = col.dataType.toUpperCase();
-            let fullType = dataType;
-
-            if (col.size && !['INT', 'BIT', 'FLOAT', 'DATE', 'DATETIME', 'TEXT'].includes(dataType)) {
-                if (dataType === 'DECIMAL') {
-                    fullType += `(${col.size})`;
-                } else {
-                    fullType += `(${col.size})`;
-                }
-            }
-
-            uddScript += `CREATE TYPE [udd_${col.fieldName}] FROM ${fullType};\nGO\n`;
-        });
-
-        return uddScript;
-    };
-
-    const getValidRows = (rows) => {
-        return rows.filter(row => row.fieldName && row.fieldName.trim() !== '');
-    };
-
-    const getTableSQL = () => {
-        const rows = [];
-
-        if (!gridRef.current || !gridRef.current.api) {
-            alert('Grid is not ready yet!');
-            return '';
-        }
-
-        gridRef.current.api.forEachNode(node => {
-            if (node && node.data) {
-                rows.push(node.data);
-            }
-        });
-
-        const validRows = getValidRows(rows);
-
-        // Get dbName and objectName from grid
-        const dbName = objectRowData.find(row => row.object === 'DB')?.name;
-        const tableRow = objectRowData.find(row => row.object === 'Table');
-        const objectName = tableRow?.name || '';
-        if (!dbName || !objectName) {
-            alert('Please provide DB Name, Table Name and at least one column.');
-            return '';
-        }
-
-        const tableName = `tbl_${objectName}`;
-        let script = `USE [${dbName}];\nGO\n\n`;
-
-        // UDDs for main table
-        script += `-- Create UDD (User Defined Data Type)\n`;
-        script += getUDDStatements(rows);
-        script += `\n-- Create Main Table\n`;
-        script += `CREATE TABLE [${tableName}] (\n`;
-
-        // Build column + constraint lines into array
-        const lines = [];
-
-        // Columns
-        validRows.forEach(col => {
-            if (col.dataType === "GRID") {
-                // GRID is reference to details table
-                // Only add as a pseudo-column in main table
-                lines.push(`  -- [${col.fieldName}] GRID (see details table)`);
-            } else {
-                let line = `  [${col.fieldName}] [udd_${col.fieldName}]`;
-                if (col.notNull) {
-                    line += ' NOT NULL';
-                }
-                lines.push(line);
-            }
-        });
-
-        // Primary Key
-        const primaryKeys = rows.filter(col => col.primaryKey).map(col => `[${col.fieldName}]`);
-        if (primaryKeys.length > 0) {
-            lines.push(`  PRIMARY KEY (${primaryKeys.join(', ')})`);
-        }
-
-        // Foreign Keys
-        const foreignKeys = rows.filter(col => col.isForeignKey && col.referenceTable && col.referenceColumn);
-        foreignKeys.forEach(col => {
-            lines.push(
-                `  FOREIGN KEY ([${col.fieldName}]) REFERENCES [tbl_${col.referenceTable}]([${col.referenceColumn}])`
-            );
-        });
-
-        // Join all with comma
-        script += lines.join(',\n') + '\n';
-        script += ');\nGO\n\n';
-
-        // ⚡ Handle Details Table(s) if GRID exists
-        const gridFields = rows.filter(col => col.dataType === "GRID");
-        if (gridFields.length > 0 && detailsDefs && detailsRowData) {
-            gridFields.forEach(gridCol => {
-                const detailsTableName = `tbl_${objectName}_${gridCol.fieldName}`;
-
-                // ✅ Add USE for details table too
-                script += `USE [${dbName}];\nGO\n\n`;
-
-                script += `-- Create Details Table for GRID field [${gridCol.fieldName}]\n`;
-
-                // collect rows from details grid
-                const detailRows = detailsRowData || [];
-                script += getUDDStatements(detailRows);
-                script += `\nCREATE TABLE [${detailsTableName}] (\n`;
-
-                const detailLines = [];
-
-                detailRows.forEach(col => {
-                    let line = `  [${col.fieldName}] [udd_${col.fieldName}]`;
-                    if (col.notNull) {
-                        line += ' NOT NULL';
-                    }
-                    detailLines.push(line);
-                });
-
-                const detailPK = detailRows.filter(col => col.primaryKey).map(col => `[${col.fieldName}]`);
-                if (detailPK.length > 0) {
-                    detailLines.push(`  PRIMARY KEY (${detailPK.join(', ')})`);
-                }
-
-                const detailFK = detailRows.filter(col => col.isForeignKey && col.referenceTable && col.referenceColumn);
-                detailFK.forEach(col => {
-                    detailLines.push(
-                        `  FOREIGN KEY ([${col.fieldName}]) REFERENCES [tbl_${col.referenceTable}]([${col.referenceColumn}])`
-                    );
-                });
-
-                script += detailLines.join(',\n') + '\n';
-                script += ');\nGO\n\n';
-            });
-        }
-        console.log(script)
-        return script;
-    };
-
-    const getStoredProcSQL = () => {
-        const rows = [];
-
-        if (!gridRef.current || !gridRef.current.api) {
-            alert('Grid is not ready!');
-            return '';
-        }
-
-        gridRef.current.api.forEachNode(node => {
-            if (node && node.data) {
-                rows.push(node.data);
-            }
-        });
-
-        const validRows = getValidRows(rows);
-
-        const dbName = objectRowData.find(row => row.object === 'DB')?.name;
-        const spRow = objectRowData.find(row => row.object === 'StoredProcedure');
-        const objectName = spRow?.name || '';
-
-        if (!dbName || !objectName) {
-            alert('Please provide DB Name, SP Name and at least one column.');
-            return '';
-        }
-
-        const tableName = `tbl_${objectName}`;
-        const procName = `sp_${objectName}`;
-
-        const isStringType = (type) => {
-            const strTypes = ['VARCHAR', 'NVARCHAR', 'TEXT', 'CHAR', 'NCHAR'];
-            return strTypes.includes(type?.toUpperCase());
-        };
-
-        // ---------- COMMON HELPER ----------
-        const buildStoredProc = (contentRows, tblName, spName) => {
-            const primaryKeyCol = contentRows.find(col => col.primaryKey);
-
-            // exclude GRID fields in parameters
-            const paramRows = contentRows.filter(col => col.dataType?.toUpperCase() !== "GRID");
-
-            const inputParams = paramRows
-                .map(col => `    @${col.fieldName} udd_${col.fieldName}`)
-                .join(',\n');
-
-            const insertableRows = paramRows.filter(col => {
-                const field = col.fieldName.toLowerCase();
-                return field !== 'modified_by' && field !== 'modified_date';
-            });
-
-            const insertFields = insertableRows.map(col => col.fieldName).join(', ');
-
-            const insertValues = insertableRows.map(col => {
-                const field = col.fieldName.toLowerCase();
-                if (field === 'created_date') return 'SYSDATETIME()';
-                return isStringType(col.dataType)
-                    ? `TRIM(@${col.fieldName})`
-                    : `@${col.fieldName}`;
-            }).join(', ');
-
-            const updateAssignments = paramRows
-                .filter(col => {
-                    const field = col.fieldName.toLowerCase();
-                    return !col.primaryKey && field !== 'created_date' && field !== 'created_by';
-                })
-                .map(col => {
-                    const field = col.fieldName.toLowerCase();
-                    if (field === 'modified_date') return `        ${col.fieldName} = SYSDATETIME()`;
-                    return isStringType(col.dataType)
-                        ? `        ${col.fieldName} = TRIM(@${col.fieldName})`
-                        : `        ${col.fieldName} = @${col.fieldName}`;
-                })
-                .join(',\n');
-
-            const selectFields = contentRows.map(col => col.fieldName).join(', ');
-
-            let script = `USE [${dbName}];\nGO\n\nCREATE PROCEDURE [dbo].[${spName}]\n(\n    @mode udd_mode,\n${inputParams}\n)\nAS\nBEGIN\n`;
-
-            // INSERT
-            script += `
-    IF @mode = 'I'
-    BEGIN
-        INSERT INTO ${tblName} (${insertFields})
-        VALUES (${insertValues})
-    END`;
-
-            // UPDATE
-            if (primaryKeyCol) {
-                script += `
-
-    ELSE IF @mode = 'U'
-    BEGIN
-        UPDATE ${tblName}
-        SET
-${updateAssignments}
-        WHERE ${primaryKeyCol.fieldName} = ${isStringType(primaryKeyCol.dataType)
-                        ? `TRIM(@${primaryKeyCol.fieldName})`
-                        : `@${primaryKeyCol.fieldName}`};
-    END`;
-            }
-
-            // DELETE
-            if (primaryKeyCol) {
-                script += `
-
-    ELSE IF @mode = 'D'
-    BEGIN
-        DELETE FROM ${tblName}
-        WHERE ${primaryKeyCol.fieldName} = ${isStringType(primaryKeyCol.dataType)
-                        ? `TRIM(@${primaryKeyCol.fieldName})`
-                        : `@${primaryKeyCol.fieldName}`};
-    END`;
-            }
-
-            // SELECT
-            script += `
-
-    ELSE IF @mode = 'A'
-    BEGIN
-        SELECT ${selectFields}
-        FROM ${tblName}
-    END
-
-    ELSE
-    BEGIN
-        RAISERROR ('Please select a valid mode' ,16,1)
-        RETURN;
-    END
-END
-GO
-`;
-            return script;
-        };
-
-        // ----------- MAIN HEADER PROCEDURE -----------
-        let script = buildStoredProc(validRows, tableName, procName);
-
-        // ----------- DETAILS PROCEDURES -----------
-        if (detailsDefs && detailsRowData && detailsRowData.length > 0) {
-            const gridRows = detailsRowData.filter(r => r.fieldName); // only valid rows
-            if (gridRows.length > 0) {
-                const detailsTableName = `tbl_${objectName}_Details`;
-                const detailsProcName = `sp_${objectName}_Details`;
-                script += '\n\n' + buildStoredProc(gridRows, detailsTableName, detailsProcName);
-            }
-        }
-
-        return script;
-    };
-
     const previewTableSQL = () => {
-        const tableScript = getTableSQL();
+        const tableScript = getTableSQL(
+            mainGridRef,
+            objectRowData,
+            detailsRowData,
+            detailsDefs,
+            enableAudit   // ✅ NEW
+        );
         if (tableScript) setSqlPreview(tableScript);
     };
 
     const previewSPCode = () => {
-        const spScript = getStoredProcSQL();
+        const spScript = getStoredProcSQL(
+            mainGridRef,
+            objectRowData,
+            detailsRowData,
+            detailsDefs,
+            enableAudit   // ✅ NEW
+        );
         if (spScript) setSqlPreview(spScript);
     };
 
     const previewNodeSingle = () => {
-        const singleNodeScript = getNodeSingleCrudScript();
+        const singleNodeScript = getNodeSingleCrudScript(mainGridRef, objectRowData, detailsRowData, detailsDefs);
         if (singleNodeScript) setSqlPreview(singleNodeScript);
     };
 
     const previewNodeLoop = () => {
-        const loopNodeScript = getNodeLoopCrudScripts();
+        const loopNodeScript = getNodeLoopCrudScripts(mainGridRef, objectRowData, detailsRowData, detailsDefs);
         if (loopNodeScript) setSqlPreview(loopNodeScript);
     };
 
@@ -702,7 +740,13 @@ GO
         //SQL Folder
         const sqlFolder = zip.folder("sql");
 
-        const tableSQL = getTableSQL();
+        const tableSQL = getTableSQL(
+            mainGridRef,
+            objectRowData,
+            detailsRowData,
+            detailsDefs,
+            enableAudit   // ✅ NEW
+        );
         if (tableSQL) {
             // Extract DB name from USE statement
             const dbMatch = tableSQL.match(/USE\s+\[(.*?)\];/i);
@@ -729,7 +773,13 @@ GO
             });
         }
 
-        const spSQL = getStoredProcSQL();
+        const spSQL = getStoredProcSQL(
+            mainGridRef,
+            objectRowData,
+            detailsRowData,
+            detailsDefs,
+            enableAudit   // ✅ NEW
+        );
         if (spSQL) {
             sqlFolder.file(`sp_${spName}.sql`, spSQL);
             hasFiles = true;
@@ -738,13 +788,13 @@ GO
         // ✅ Node Folder
         const nodeFolder = zip.folder("node");
 
-        const nodeSingle = getNodeSingleCrudScript();
+        const nodeSingle = getNodeSingleCrudScript(mainGridRef, objectRowData, detailsRowData, detailsDefs);
         if (nodeSingle) {
             nodeFolder.file(`${reactName}_single.js`, nodeSingle);
             hasFiles = true;
         }
 
-        const nodeLoop = getNodeLoopCrudScripts();
+        const nodeLoop = getNodeLoopCrudScripts(mainGridRef, objectRowData, detailsRowData, detailsDefs);
         if (nodeLoop) {
             nodeFolder.file(`${reactName}_loop.js`, nodeLoop);
             hasFiles = true;
@@ -753,8 +803,8 @@ GO
         // ✅ React Folder
         const reactFolder = zip.folder("react");
 
-        const searchDesign = getFrontendSearchDesignCode();
-        const addDesign = getFrontendAddDesignCode();
+        const searchDesign = getFrontendSearchDesignCode(mainGridRef, objectRowData);
+        const addDesign = getFrontendAddDesignCode(mainGridRef, objectRowData, rowData, detailsRowData);
 
         if (searchDesign) {
             reactFolder.file(`${reactName}_search.js`, searchDesign);
@@ -775,551 +825,6 @@ GO
             alert("No files to generate. Please check your inputs.");
         }
     };
-
-    const getNodeSingleCrudScript = () => {
-        const rows = [];
-        if (!gridRef.current || !gridRef.current.api) return "";
-        gridRef.current.api.forEachNode(node => rows.push(node.data));
-        const name = objectRowData.find(row => row.object === 'React')?.name;
-
-        if (!name || rows.length === 0) return "";
-
-        const validRows = getValidRows(rows);
-        const procName = `sp_${name}`;
-
-        const getSqlType = (col) => {
-            const type = col.dataType?.toUpperCase();
-            switch (type) {
-                case "INT": return "sql.Int";
-                case "FLOAT": return "sql.Float";
-                case "BIT": return "sql.Bit";
-                case "DATE": return "sql.Date";
-                case "DATETIME": return "sql.DateTime";
-                case "VARBINARY": return "sql.VarBinary";
-                case "DECIMAL": {
-                    const [precision, scale] = (col.size || "18,2").split(',').map(v => parseInt(v.trim()) || 0);
-                    return `sql.Decimal(${precision}, ${scale})`;
-                }
-                default: return "sql.NVarChar";
-            }
-        };
-
-        // ---------- COMMON FUNCTION BUILDER ----------
-        const buildNodeCrud = (funcName, procName, contentRows) => {
-            // Exclude GRID fields
-            const paramRows = contentRows.filter(col => col.dataType?.toUpperCase() !== "GRID");
-
-            const binaryFields = paramRows.filter(col => col.dataType.toLowerCase() === "varbinary");
-            const otherFields = paramRows.filter(col => col.dataType.toLowerCase() !== "varbinary");
-
-            let code = "";
-
-            ['Insert', 'Update', 'Delete'].forEach(mode => {
-                code += `\nconst ${funcName}${mode} = async (req, res) => {\n`;
-
-                if (otherFields.length > 0) {
-                    code += `  const { ${otherFields.map(col => col.fieldName).join(', ')} } = req.body;\n`;
-                }
-
-                binaryFields.forEach(col => {
-                    code += `  let ${col.fieldName} = null;\n`;
-                    code += `  if (req.file) ${col.fieldName} = req.file.buffer;\n`;
-                });
-
-                code += `\n  try {\n`;
-                code += `    const pool = await sql.connect(dbConfig);\n`;
-                code += `    await pool.request()\n`;
-                code += `      .input("mode", sql.NVarChar, "${mode[0]}")\n`;
-
-                // only paramRows, not GRID
-                paramRows.forEach(col => {
-                    const sqlType = getSqlType(col);
-                    code += `      .input("${col.fieldName}", ${sqlType}, ${col.fieldName})\n`;
-                });
-
-                const execParams = ["@mode"].concat(paramRows.map(col => `@${col.fieldName}`)).join(", ");
-                code += `      .query(\`EXEC ${procName} ${execParams}\`);\n`;
-
-                code += `\n    res.status(200).json({ success: true, message: "${funcName} ${mode.toLowerCase()}d successfully" });\n`;
-                code += `  } catch (err) {\n`;
-                code += `    console.error("Error during ${funcName} ${mode.toLowerCase()}:", err);\n`;
-                code += `    res.status(500).json({ message: err.message || "Internal Server Error" });\n`;
-                code += `  }\n`;
-                code += `};\n`;
-            });
-
-            return code;
-        };
-
-        // -------- HEADER NODE CRUD --------
-        let script = `// Auto-generated Node.js CRUD for ${procName}\n`;
-        script += buildNodeCrud(name, procName, validRows);
-
-        // -------- DETAILS NODE CRUD --------
-        if (detailsDefs && detailsRowData && detailsRowData.length > 0) {
-            const gridRows = detailsRowData.filter(r => r.fieldName);
-            if (gridRows.length > 0) {
-                const detailsProcName = `sp_${name}_Details`;
-                script += "\n\n// ---- Details CRUD ----\n";
-                script += buildNodeCrud(`${name}Details`, detailsProcName, gridRows);
-
-                script += `\nmodule.exports = { ${name}Insert, ${name}Update, ${name}Delete, ${name}DetailsInsert, ${name}DetailsUpdate, ${name}DetailsDelete };`;
-                return script;
-            }
-        }
-
-        // only header
-        script += `\nmodule.exports = { ${name}Insert, ${name}Update, ${name}Delete };`;
-        return script;
-    };
-
-    const getNodeLoopCrudScripts = () => {
-        const rows = [];
-        if (!gridRef.current || !gridRef.current.api) return "";
-        gridRef.current.api.forEachNode((node) => rows.push(node.data));
-
-        const name = objectRowData.find(row => row.object === 'React')?.name;
-        if (!name || rows.length === 0) return "";
-
-        const validRows = getValidRows(rows);
-        const procName = `sp_${name}`;
-        const arrayName = `${name}Data`;
-
-        const getSqlType = (col) => {
-            const type = col.dataType?.toUpperCase();
-            switch (type) {
-                case "INT": return "sql.Int";
-                case "FLOAT": return "sql.Float";
-                case "BIT": return "sql.Bit";
-                case "DATE": return "sql.Date";
-                case "DATETIME": return "sql.DateTime";
-                case "VARBINARY": return "sql.VarBinary";
-                case "DECIMAL": {
-                    const [precision, scale] = (col.size || "18,2").split(',').map(v => parseInt(v.trim()) || 0);
-                    return `sql.Decimal(${precision}, ${scale})`;
-                }
-                default: return "sql.NVarChar";
-            }
-        };
-
-        const generateLoopFunction = (funcName, procName, arrayName, contentRows, mode, successMsg) => {
-            // Exclude GRID fields
-            const paramRows = contentRows.filter(col => col.dataType?.toUpperCase() !== "GRID");
-
-            let script = `// Auto-generated ${funcName} API for ${procName}\n`;
-            script += `const ${funcName} = async (req, res) => {\n`;
-            script += `  const ${arrayName} = req.body.${arrayName};\n`;
-            script += `  if (!${arrayName} || !${arrayName}.length) {\n`;
-            script += `    return res.status(400).json("Invalid or empty ${arrayName} array.");\n`;
-            script += `  }\n\n`;
-            script += `  try {\n`;
-            script += `    const pool = await sql.connect(dbConfig);\n`;
-            script += `    for (const item of ${arrayName}) {\n`;
-            script += `      await pool.request()\n`;
-            script += `        .input("mode", sql.NVarChar, "${mode}")\n`;
-
-            paramRows.forEach((col) => {
-                const sqlType = getSqlType(col);
-                script += `        .input("${col.fieldName}", ${sqlType}, item.${col.fieldName})\n`;
-            });
-
-            const execParams = ["@mode"].concat(paramRows.map(col => `@${col.fieldName}`)).join(", ");
-            script += `        .query(\`EXEC ${procName} ${execParams}\`);\n`;
-            script += `    }\n`;
-            script += `    res.status(200).json("${successMsg}");\n`;
-            script += `  } catch (err) {\n`;
-            script += `    console.error("Error in ${funcName}:", err);\n`;
-            script += `    res.status(500).json({ message: err.message || "Internal Server Error" });\n`;
-            script += `  }\n`;
-            script += `};\n\n`;
-            return script;
-        };
-
-        let script = `// ---------- HEADER LOOP CRUD ----------\n`;
-        script += generateLoopFunction(`${name}LoopInsert`, procName, arrayName, validRows, "I", `${name} data inserted successfully`);
-        script += generateLoopFunction(`${name}LoopUpdate`, procName, arrayName, validRows, "U", `${name} data updated successfully`);
-        script += generateLoopFunction(`${name}LoopDelete`, procName, arrayName, validRows, "D", `${name} data deleted successfully`);
-
-        // ---------- DETAILS LOOP CRUD ----------
-        if (detailsDefs && detailsRowData && detailsRowData.length > 0) {
-            const gridRows = detailsRowData.filter(r => r.fieldName);
-            if (gridRows.length > 0) {
-                const detailsProcName = `sp_${name}_Details`;
-                const detailsArrayName = `${name}DetailsData`;
-
-                script += `\n// ---------- DETAILS LOOP CRUD ----------\n`;
-                script += generateLoopFunction(`${name}DetailsLoopInsert`, detailsProcName, detailsArrayName, gridRows, "I", `${name} details inserted successfully`);
-                script += generateLoopFunction(`${name}DetailsLoopUpdate`, detailsProcName, detailsArrayName, gridRows, "U", `${name} details updated successfully`);
-                script += generateLoopFunction(`${name}DetailsLoopDelete`, detailsProcName, detailsArrayName, gridRows, "D", `${name} details deleted successfully`);
-
-                script += `module.exports = { ${name}LoopInsert, ${name}LoopUpdate, ${name}LoopDelete, ${name}DetailsLoopInsert, ${name}DetailsLoopUpdate, ${name}DetailsLoopDelete };`;
-                return script;
-            }
-        }
-
-        // only header
-        script += `module.exports = { ${name}LoopInsert, ${name}LoopUpdate, ${name}LoopDelete };`;
-        return script;
-    };
-
-    const getFrontendSearchDesignCode = () => {
-        const rows = [];
-        if (!gridRef.current || !gridRef.current.api) return "";
-
-        // gridRef.current.api.forEachNode((node) => {
-        //     const data = node.data;
-        //     if (data && data.designSCSelect && data.designSCSelect.trim() !== '') {
-        //         rows.push(data);
-        //     }
-        // });
-
-        gridRef.current.api.forEachNode(node => {
-            if (node && node.data) {
-                rows.push(node.data);
-            }
-        });
-
-        const name = objectRowData.find(row => row.object === 'React')?.name;
-        if (!name || rows.length === 0) return "";
-
-        const screenTitle = name.charAt(0).toUpperCase() + name.slice(1);
-
-        // ✅ Sort rows by designSCOrderNo if it's a number, else maintain current order
-        const orderedRows = [...rows].sort((a, b) => {
-            const aOrder = parseInt(a.designSCOrderNo);
-            const bOrder = parseInt(b.designSCOrderNo);
-
-            const aValid = !isNaN(aOrder);
-            const bValid = !isNaN(bOrder);
-
-            if (aValid && bValid) return aOrder - bOrder;
-            if (aValid) return -1;
-            if (bValid) return 1;
-            return 0;
-        });
-
-        const validRows = getValidRows(orderedRows);
-
-        const columnDefs = validRows.map(
-            (col) => `    { headerName: "${col.fieldName}", field: "${col.fieldName}", flex: 1 }`
-        );
-
-        const inputControls = validRows
-            .filter((col) => col.designSCSelect) // Only generate if designSCSelect is not empty
-            .map((col) => {
-                const label = `            <label className="form-label fw-semibold">${col.fieldName}</label>`;
-                const type = col.designSCSelect;
-
-                if (type === "Text") {
-                    return `          <div className="col-md-3">\n${label}\n            <input className="form-control" type="text" placeholder="Enter ${col.fieldName}" />\n          </div>`;
-                }
-
-                if (type === "Dropdown") {
-                    return `          <div className="col-md-3">\n${label}\n            <Select options={[]} placeholder="Select ${col.fieldName}" />\n          </div>`;
-                }
-
-                if (type === "Date") {
-                    return `          <div className="col-md-3">\n${label}\n            <input className="form-control" type="date" />\n          </div>`;
-                }
-
-                return ""; // fallback for unsupported or empty
-            })
-            .join("\n");
-
-        const buttonIcons = {
-            Add: { icon: "plus", color: "success" },
-            Delete: { icon: "dash", color: "danger" },
-            Update: { icon: "floppy", color: "primary" },
-            Print: { icon: "printer", color: "dark" },
-            Excel: { icon: "file-earmark-excel", color: "success" },
-            Search: { icon: "search", color: "primary" },
-            Refresh: { icon: "arrow-clockwise", color: "secondary" },
-        };
-
-        const buttonRows = orderedRows.filter((row) => row.designSCButtons);
-        const headerButtons = buttonRows
-            .filter((row) =>
-                ["Add", "Delete", "Update", "Print", "Excel"].includes(row.designSCButtons)
-            )
-            .map(
-                (row) =>
-                    `          <button className="btn btn-outline-${buttonIcons[row.designSCButtons].color}"><i className="bi bi-${buttonIcons[row.designSCButtons].icon}" /></button>`
-            )
-            .join("\n");
-
-        const inputActionButtons = buttonRows
-            .filter((row) =>
-                ["Search", "Refresh"].includes(row.designSCButtons)
-            )
-            .map(
-                (row) =>
-                    `            <button className="btn btn-outline-${buttonIcons[row.designSCButtons].color}"><i className="bi bi-${buttonIcons[row.designSCButtons].icon}" /></button>`
-            )
-            .join("\n");
-
-        return `import React from "react";
-import Select from "react-select";
-import { AgGridReact } from "ag-grid-react";
-import { AllCommunityModule, ModuleRegistry } from "ag-grid-community";
-import { provideGlobalGridOptions } from 'ag-grid-community';
-import "ag-grid-community/styles/ag-grid.css";
-import "ag-grid-community/styles/ag-theme-alpine.css";
-import "bootstrap/dist/css/bootstrap.min.css";
-import "bootstrap-icons/font/bootstrap-icons.css";
-
-ModuleRegistry.registerModules([AllCommunityModule]);
-provideGlobalGridOptions({ theme: "legacy" });
-
-const ${screenTitle}Screen = () => {
-  const columnDefs = [
-${columnDefs.join(",\n")}
-  ];
-  const rowData = [];
-
-  return (
-    <div className="container-fluid p-3">
-      <div className="d-flex p-3 rounded-2 border border-black justify-content-between align-items-center mb-3 shadow-sm">
-        <h2 className="mb-0">${screenTitle}</h2>
-        <div className="d-flex gap-2">
-          ${headerButtons}
-        </div>
-      </div>
-
-      <div className="card p-3 mb-3 shadow-sm">
-        <div className="row g-3">
-${inputControls}
-          <div className="col-md-3 d-flex align-items-end gap-2">
-            ${inputActionButtons}
-          </div>
-        </div>
-      </div>
-
-      <div className="card p-2 shadow-sm">
-        <div className="ag-theme-alpine" style={{ height: 300 }}>
-          <AgGridReact
-            columnDefs={columnDefs}
-            rowData={rowData}
-            pagination={true}
-            paginationPageSize={10}
-          />
-        </div>
-      </div>
-    </div>
-  );
-};
-
-export default ${screenTitle}Screen;`;
-    };
-
-    const getFrontendAddDesignCode = () => {
-        const rows = [];
-        if (!gridRef.current || !gridRef.current.api) return "";
-
-        gridRef.current.api.forEachNode((node) => {
-            const data = node.data;
-            if (data && data.designAddScreenSelect && data.designAddScreenSelect.trim() !== "") {
-                rows.push(data);
-            }
-        });
-
-        const name = objectRowData.find((row) => row.object === "React")?.name;
-        if (!name || rows.length === 0) return "";
-        const screenTitle = name.charAt(0).toUpperCase() + name.slice(1);
-
-        // ---- ORDERED ROWS (by row, col) ----
-        const orderedRows = [...rows].sort((a, b) => {
-            const parse = (v) =>
-                (v || "9999,9999,3")
-                    .split(",")
-                    .map((x) => parseInt(x.trim()))
-                    .filter((n) => !isNaN(n));
-            const [ar, ac] = parse(a.designAddOrderNo);
-            const [br, bc] = parse(b.designAddOrderNo);
-            return ar !== br ? ar - br : ac - bc;
-        });
-
-        // ---- GROUP BY ROW ----
-        const groupedRows = {};
-        orderedRows.forEach((col) => {
-            const [rowNum, colNum, colSize] = (col.designAddOrderNo || "9999,9999,3")
-                .split(",")
-                .map((v) => parseInt(v.trim()));
-            if (!groupedRows[rowNum]) groupedRows[rowNum] = [];
-            groupedRows[rowNum].push({ ...col, colNum, colSize: colSize || 3 });
-        });
-
-        // ---- GRID COLUMN DEFS ----
-        let gridColumnDefs = " ";
-        if (Array.isArray(detailsRowData) && detailsRowData.length) {
-            const withOrder = detailsRowData.filter((r) => r.fieldName && r.gridOrderNo);
-            const withoutOrder = detailsRowData.filter((r) => r.fieldName && !r.gridOrderNo);
-            const sorted = [
-                ...withOrder.sort((a, b) => (parseInt(a.gridOrderNo) || 9999) - (parseInt(b.gridOrderNo) || 9999)),
-                ...withoutOrder,
-            ];
-            gridColumnDefs = sorted
-                .map((r) => {
-                    const tooltip = r.gridTooltip ? `, headerTooltip: "${r.gridTooltip}"` : "";
-                    return `{ headerName: "${r.fieldName}", field: "${r.fieldName}" ${tooltip} }`;
-                })
-                .join(",\n            ");
-        }
-
-        // utils
-        const isGrid = (c) => c.designAddScreenSelect === "Grid";
-        const rowHasOnlyGrid = (rowCols) => rowCols.length > 0 && rowCols.every(isGrid);
-
-        // ---- RENDERERS ----
-        const renderInputField = (col) => {
-            const tooltipAttr = col.addScreenTooltip ? ` title="${col.addScreenTooltip}"` : "";
-            const label = `            <label className="form-label fw-semibold">${col.fieldName}</label>`;
-            const size = col.colSize || 3; // ✅ always respect colSize
-            const wrap = (inner) =>
-                `          <div className="col-md-${size}">\n${label}\n${inner}\n          </div>`;
-            switch (col.designAddScreenSelect) {
-                case "Text":
-                    return wrap(`            <input className="form-control" type="text" ${tooltipAttr} placeholder="Enter ${col.fieldName}" />`);
-                case "Dropdown":
-                    return wrap(`            <Select options={[]} placeholder="Select ${col.fieldName}" ${tooltipAttr} />`);
-                case "Date":
-                    return wrap(`            <input className="form-control" type="date" ${tooltipAttr}/>`);
-                case "Number":
-                    return wrap(`            <input className="form-control" type="number" ${tooltipAttr}/>`);
-                case "File":
-                    return wrap(`            <input className="form-control" type="file" ${tooltipAttr}/>`);
-                case "Text Area":
-                    return wrap(`            <textarea className="form-control" ${tooltipAttr}></textarea>`);
-                default:
-                    return "";
-            }
-        };
-
-        const renderInlineGrid = (col) => {
-            const size = col.colSize || 6;
-            return `          <div className="col-md-${size}">
-            <div className="ag-theme-alpine" style={{ height: 300, width: "100%" }}>
-              <AgGridReact rowData={[]} columnDefs={[ ${gridColumnDefs} ]} pagination={true} />
-            </div>
-          </div>`;
-        };
-
-        const renderGridCard = (title = "Details") => {
-            return `
-    <div className="card p-3 shadow-sm mb-3">
-      <h5 className="mb-3">${title}</h5>
-      <div className="ag-theme-alpine" style={{ height: 300, width: "100%" }}>
-        <AgGridReact rowData={[]} columnDefs={[ ${gridColumnDefs} ]} pagination={true} />
-      </div>
-    </div>`;
-        };
-
-        // ---- BUILD MAIN (inputs + any inline grids) and BELOW (grid-only rows as cards) ----
-        const rowKeys = Object.keys(groupedRows).map((n) => parseInt(n)).sort((a, b) => a - b);
-
-        let mainRowsHtml = "";
-        let belowCardsHtml = "";
-
-        rowKeys.forEach((rk) => {
-            const rowCols = groupedRows[rk].sort((a, b) => a.colNum - b.colNum);
-
-            if (rowHasOnlyGrid(rowCols)) {
-                rowCols.forEach((col) => {
-                    belowCardsHtml += renderGridCard(col.fieldName || "Details");
-                });
-                return;
-            }
-
-            const fields = rowCols
-                .map((col) => {
-                    if (isGrid(col)) return renderInlineGrid(col);
-                    return renderInputField(col);
-                })
-                .join("\n");
-
-            mainRowsHtml += `        <div className="row g-3 mb-2">\n${fields}\n        </div>\n`;
-        });
-
-        // ---- Buttons ----
-        const buttonIcons = {
-            Save: { icon: "save", color: "success" },
-            Update: { icon: "floppy", color: "primary" },
-            Print: { icon: "printer", color: "secondary" },
-            Excel: { icon: "file-earmark-excel", color: "success" },
-            Refresh: { icon: "arrow-clockwise", color: "warning" },
-            Close: { icon: "x-circle", color: "danger" },
-        };
-
-        const buttonRows = rowData.filter((row) => row.designAddScreenButtons);
-
-        // helper → generate button HTML with special handling for Refresh
-        const renderButton = (row, position) => {
-            const { icon, color } = buttonIcons[row.designAddScreenButtons] || {};
-            const extra =
-                row.designAddScreenButtons === "Refresh"
-                    ? ` onClick={() => window.location.reload()}`
-                    : "";
-
-            return `<button className="btn btn-outline-${color} ${position === "Top" ? "ms-2" : ""
-                }"${extra}>
-                <i className="bi bi-${icon}" />
-            </button>`;
-        };
-
-        const topButtons = buttonRows
-            .filter((row) => row.addScreenButtonPosition === "Top")
-            .map((row) => renderButton(row, "Top"))
-            .join("\n");
-
-        const bottomButtons = buttonRows
-            .filter((row) => row.addScreenButtonPosition === "Bottom")
-            .map((row) => renderButton(row, "Bottom"))
-            .join("\n");
-
-        // ---- Layout ----
-        let layoutCode = "";
-        if (mainRowsHtml.trim()) {
-            layoutCode += `
-    <div className="card p-3 shadow-sm mb-3">
-${mainRowsHtml}
-      <div className="d-flex align-items-end gap-2">
-${bottomButtons || ""}
-      </div>
-    </div>`;
-        }
-        layoutCode += belowCardsHtml;
-
-        // ---- Final Code ----
-        return `import React from "react";
-import Select from "react-select";
-import { AgGridReact } from "ag-grid-react";
-import { AllCommunityModule, ModuleRegistry } from "ag-grid-community";
-import { provideGlobalGridOptions } from "ag-grid-community";
-import "ag-grid-community/styles/ag-grid.css";
-import "ag-grid-community/styles/ag-theme-alpine.css";
-import "bootstrap/dist/css/bootstrap.min.css";
-import "bootstrap-icons/font/bootstrap-icons.css";
-
-ModuleRegistry.registerModules([AllCommunityModule]);
-provideGlobalGridOptions({ theme: "legacy" });
-
-const Add${screenTitle}Screen = () => {
-  return (
-    <div className="container-fluid p-3">
-      <div className="d-flex justify-content-between border border-black rounded-2 p-3 align-items-center mb-3 shadow-sm">
-        <h2 className="mb-0 ms-3">Add ${screenTitle}</h2>
-        <div className="d-flex">
-          ${topButtons || ""}
-        </div>
-      </div>
-
-${layoutCode}
-    </div>
-  );
-};
-
-export default Add${screenTitle}Screen;`;
-    };
-
 
     const renderReactCodeFromString = (codeString) => {
         try {
@@ -1367,7 +872,7 @@ export default Add${screenTitle}Screen;`;
         );
 
         if (hasSearchData) {
-            searchCode = getFrontendSearchDesignCode();
+            searchCode = getFrontendSearchDesignCode(mainGridRef, objectRowData);
         }
 
         // Check if add form design fields have values safely
@@ -1377,7 +882,7 @@ export default Add${screenTitle}Screen;`;
         );
 
         if (hasAddData) {
-            addCode = getFrontendAddDesignCode();
+            addCode = getFrontendAddDesignCode(mainGridRef, objectRowData, rowData, detailsRowData);
         }
 
         const hasSearchDesign = !!searchCode.trim();
@@ -1506,6 +1011,11 @@ export default Add${screenTitle}Screen;`;
                 cellEditorParams: {
                     values: ['INT', 'VARCHAR', 'TEXT', 'FLOAT', 'DATE', 'DATETIME', 'BIT', 'NVARCHAR', 'VARBINARY', 'DECIMAL', 'GRID'],
                 },
+                onCellValueChanged: (params) => {
+                    if (params.newValue === "BIT") {
+                        params.node.setDataValue('designAddScreenSelect', 'Toggle');
+                    }
+                }
             },
             {
                 field: 'size',
@@ -1607,12 +1117,61 @@ export default Add${screenTitle}Screen;`;
                         Details
                     </Button>
                 </Col>
+
+                <Col md={6} className="d-flex align-items-center justify-content-end mt-4">
+                    <div className="d-flex align-items-center gap-3">
+
+                        {/* Checkbox */}
+                        <Form.Check
+                            type="checkbox"
+                            label="Enable Audit Columns"
+                            checked={enableAudit}
+                            onChange={(e) => setEnableAudit(e.target.checked)}
+                        />
+
+                        {/* Download Button */}
+                        <Button variant="secondary" onClick={downloadExcelTemplate}>
+                            ⬇️ Download
+                        </Button>
+
+                        {/* Hidden File Input */}
+                        <input
+                            type="file"
+                            accept=".xlsx"
+                            ref={fileInputRef}
+                            onChange={handleExcelUpload}
+                            style={{ display: "none" }}
+                        />
+
+                        {/* Upload Button */}
+                        <Button
+                            variant="primary"
+                            onClick={() => fileInputRef.current.click()}
+                        >
+                            📤 Upload Excel
+                        </Button>
+
+                    </div>
+                </Col>
+
+                <Col md={3}>
+    <Form.Label>Screen Type:</Form.Label>
+    <Form.Select
+        value={screenType}
+        onChange={(e) => setScreenType(e.target.value)}
+    >
+        <option value="search">Search Screen</option>
+        <option value="add">Add Screen</option>
+        <option value="add-grid">Add + Grid Screen</option>
+        <option value="combined">Add + Search + Grid Screen</option>
+    </Form.Select>
+</Col>
             </Row>
 
             <div className="d-flex">
                 <div className="ag-theme-alpine mb-3 me-5" style={{ height: 200, width: 500 }}>
                     <AgGridReact
-                        ref={gridRef}
+                        ref={objectGridRef}
                         rowData={objectRowData}
                         columnDefs={objectClumnDefs}
                         rowHeight={35}
@@ -1628,15 +1187,32 @@ export default Add${screenTitle}Screen;`;
 
             <div className="ag-theme-alpine mb-4" style={{ height: 350 }}>
                 <AgGridReact
-                    ref={gridRef}
+                    ref={mainGridRef}
                     rowData={rowData}
                     columnDefs={columnDefs}
                     defaultColDef={defaultColDef}
                     rowHeight={35}
+                    stopEditingWhenCellsLoseFocus={true}   // ✅ ADD THIS
+
+                    // ✅ NEW: Runs on initial load (FIX for refresh issue)
+                    onGridReady={(params) => {
+                        updateColumnVisibility(params.api);
+                    }}
+
+                    // ✅ Existing logic (keep it)
                     onCellValueChanged={(params) => {
-                        const updatedData = [];
-                        params.api.forEachNode(node => updatedData.push(node.data));
-                        setRowData(updatedData);
+                        if (
+                            params.colDef.field === "dataType" &&
+                            !["INT", "BIGINT"].includes(params.newValue?.toUpperCase()) &&
+                            params.data.constraints?.includes("AI")
+                        ) {
+                            params.node.setDataValue(
+                                "constraints",
+                                params.data.constraints.filter(v => v !== "AI")
+                            );
+                        }
+
+                        updateColumnVisibility(params.api);
                     }}
                 />
             </div>
@@ -1659,7 +1235,16 @@ export default Add${screenTitle}Screen;`;
                 <Button variant="warning" className="me-2" onClick={previewSPCode}>Preview SP Code</Button>
                 <Button variant="warning" className="me-2" onClick={previewNodeSingle}>⚙️ Preview Node Insert (Single)</Button>
                 <Button variant="dark" className="me-2" onClick={previewNodeLoop}>🔁 Preview Node Insert (Loop)</Button>
-                <Button variant="primary" onClick={handleGenerateBothDesigns}>🧩 Generate Both Designs</Button>
+                {/* <Button variant="primary" className="me-2" onClick={handleGenerateBothDesigns}>🧩 Debug Both Designs</Button> */}
+
+                {/* ✅ ADD THIS */}
+                <Button
+    variant="success"
+    className="ms-2"
+    onClick={handleGenerateScreen}
+>
+    🚀 Generate Screen
+</Button>
             </div>
 
             <div className="mt-4">
