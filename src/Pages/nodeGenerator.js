@@ -47,7 +47,7 @@ export const getNodeSingleCrudScript = (gridRef, objectRowData, detailsDefs, det
     const field = col.fieldName.toLowerCase();
 
     // ❌ Do not send auto-generated fields
-    if (field === "created_date" || field === "modified_date") return false;
+    
 
     return true;
 });
@@ -64,6 +64,8 @@ export const getNodeSingleCrudScript = (gridRef, objectRowData, detailsDefs, det
             if (otherFields.length > 0) {
                 code += `  const {
   ${otherFields.map(col => col.fieldName).join(', ')},
+  created_date,
+  modified_date,
   created_by,
   modified_by,
   company_code
@@ -86,13 +88,16 @@ export const getNodeSingleCrudScript = (gridRef, objectRowData, detailsDefs, det
 });
 
 // ✅ ALWAYS ADD AUDIT FIELDS
-code += `      .input("created_by", sql.NVarChar, created_by)\n`;
-code += `      .input("modified_by", sql.NVarChar, modified_by)\n`;
 code += `      .input("company_code", sql.NVarChar, company_code)\n`;
+code += `      .input("created_by", sql.NVarChar, created_by)\n`;
+code += `      .input("created_date", sql.DateTime, created_date)\n`;
+code += `      .input("modified_by", sql.NVarChar, modified_by)\n`;
+code += `      .input("modified_date", sql.DateTime, modified_date)\n`;
+
 
             const execParams = ["@mode"]
     .concat(paramRows.map(col => `@${col.fieldName}`))
-    .concat(["@company_code", "@created_by", "@modified_by"])
+    .concat(["@company_code", "@created_by", "@created_date", "@modified_by", "@modified_date"])
     .join(", ");
 
             code += `      .query(\`EXEC ${procName} ${execParams}\`);\n`;
@@ -177,8 +182,6 @@ export const getNodeLoopCrudScripts = (gridRef, objectRowData, detailsDefs, deta
 
     const field = col.fieldName.toLowerCase();
 
-    if (field === "created_date" || field === "modified_date") return false;
-
     return true;
 });
 
@@ -204,13 +207,22 @@ export const getNodeLoopCrudScripts = (gridRef, objectRowData, detailsDefs, deta
 });
 
 // ✅ ADD AUDIT FIELDS FROM item
-script += `        .input("created_by", sql.NVarChar, item.created_by)\n`;
-script += `        .input("modified_by", sql.NVarChar, item.modified_by)\n`;
 script += `        .input("company_code", sql.NVarChar, item.company_code)\n`;
+script += `        .input("created_by", sql.NVarChar, item.created_by)\n`;
+script += `        .input("created_date", sql.DateTime, item.created_date)\n`;
+script += `        .input("modified_by", sql.NVarChar, item.modified_by)\n`;
+script += `        .input("modified_date", sql.DateTime, item.modified_date)\n`;
+
 
         const execParams = ["@mode"]
     .concat(paramRows.map(col => `@${col.fieldName}`))
-    .concat(["@company_code", "@created_by", "@modified_by"])
+    .concat([
+  "@company_code",
+  "@created_by",
+  "@created_date",
+  "@modified_by",
+  "@modified_date"
+])
     .join(", ");
 
         script += `        .query(\`EXEC ${procName} ${execParams}\`);\n`;
