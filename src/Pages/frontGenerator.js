@@ -5,6 +5,174 @@ export const getValidRows = (rows) => {
     return rows.filter(row => row.fieldName && row.fieldName.trim() !== '');
 };
 
+const BUTTON_CONFIG = {
+    Add: { icon: "plus", color: "success" },
+    Save: { icon: "check", color: "success" },
+    Update: { icon: "pencil", color: "primary" },
+    Delete: { icon: "trash", color: "danger" },
+    Print: { icon: "printer", color: "dark" },
+    Excel: { icon: "file-earmark-excel", color: "success" },
+    Search: { icon: "search", color: "primary" },
+    Refresh: { icon: "arrow-clockwise", color: "secondary" },
+    Close: { icon: "x-circle", color: "secondary", variant: "solid" }
+};
+
+const safeFieldName = (name = "") => {
+    return name.replace(/[^a-zA-Z0-9_]/g, "");
+};
+
+const renderInputControl = (col, type, size = 3) => {
+
+    const fieldName = safeFieldName(col.fieldName);
+
+    const label = `
+<label className="form-label fw-semibold">
+   ${col.fieldName}
+</label>`;
+
+    switch ((type || "").toUpperCase()) {
+
+        case "TEXT":
+            return `
+<div className="col-md-${size}">
+   ${label}
+
+   <input
+      className="form-control"
+      placeholder="Enter ${col.fieldName}"
+   />
+</div>`;
+
+        case "DROPDOWN":
+            return `
+<div className="col-md-${size}">
+   ${label}
+
+   <Select
+      options={[]}
+      placeholder="Select ${col.fieldName}"
+   />
+</div>`;
+
+        case "DATE":
+            return `
+<div className="col-md-${size}">
+   ${label}
+
+   <input
+      type="date"
+      className="form-control"
+   />
+</div>`;
+
+        case "NUMBER":
+            return `
+<div className="col-md-${size}">
+   ${label}
+
+   <input
+      type="number"
+      className="form-control"
+      onKeyDown={(e) => {
+         if (["e", "E", "+", "-"].includes(e.key)) {
+            e.preventDefault();
+         }
+      }}
+   />
+</div>`;
+
+        case "TEXT AREA":
+            return `
+<div className="col-md-${size}">
+   ${label}
+
+   <textarea className="form-control"></textarea>
+</div>`;
+
+        case "TOGGLE":
+            return `
+<div className="col-md-${size}">
+   ${label}
+
+   <div className="form-check form-switch">
+      <input
+         className="form-check-input"
+         type="checkbox"
+      />
+   </div>
+</div>`;
+
+        case "FILE":
+            return `
+<div className="col-md-${size}">
+   ${label}
+
+   <input
+      type="file"
+      className="form-control"
+   />
+</div>`;
+
+        default:
+            return "";
+    }
+};
+
+const generateButtons = (rows, key) => {
+
+    return rows
+        .filter(row => row[key])
+        .map(row => {
+
+            const value = row[key]?.toString().trim();
+
+            const btn = BUTTON_CONFIG[value] || {};
+
+            const btnClass = btn.variant === "solid"
+                ? `btn btn-${btn.color || "secondary"}`
+                : `btn btn-outline-${btn.color || "secondary"}`;
+
+            return `
+<button
+   type="button"
+   className="${btnClass}"
+>
+   <i className="bi bi-${btn.icon || "circle"}"></i>
+</button>`;
+        })
+        .join("\n");
+};
+
+const generateAddButtons = (rows) => {
+
+    return rows
+        .filter(row =>
+            row.designAddScreenButtons &&
+            row.designAddScreenButtons.toString().trim() !== ""
+        )
+        .map(row => {
+
+            const value =
+                row.designAddScreenButtons?.toString().trim();
+
+            const btn = BUTTON_CONFIG[value] || {};
+
+            const btnClass = btn.variant === "solid"
+                ? `btn btn-${btn.color || "secondary"}`
+                : `btn btn-outline-${btn.color || "secondary"}`;
+
+            return `
+<button
+   type="button"
+   className="${btnClass}"
+>
+   <i className="bi bi-${btn.icon || "circle"} me-1"></i>
+   ${value}
+</button>`;
+        })
+        .join("\n");
+};
+
 // ================= SEARCH SCREEN =================
 export const getFrontendSearchDesignCode = (gridRef, objectRowData) => {
 
@@ -17,19 +185,7 @@ export const getFrontendSearchDesignCode = (gridRef, objectRowData) => {
         }
     });
 
-    const BUTTON_CONFIG = {
-    Add: { icon: "plus", color: "success" },
-    Save: { icon: "check", color: "success" },
-    Update: { icon: "pencil", color: "primary" },
-    Delete: { icon: "trash", color: "danger" },
-    Print: { icon: "printer", color: "dark" },
-    Excel: { icon: "file-earmark-excel", color: "success" },
-    Search: { icon: "search", color: "primary" },
-    Refresh: { icon: "arrow-clockwise", color: "secondary" },
-    Close: { icon: "x-lg", color: "secondary", label: "Close" }
-};
-
-const addButtonRows = rows.filter(r => r.designAddScreenButtons);
+    const addButtonRows = rows.filter(r => r.designAddScreenButtons);
 
     const name = objectRowData.find(row => row.object === 'React')?.name;
     if (!name || rows.length === 0) return "";
@@ -50,106 +206,69 @@ const addButtonRows = rows.filter(r => r.designAddScreenButtons);
     });
 
     const generateButtons = (rows, key) => {
-    return rows
-        .filter(row => row[key])
-        .map(row => {
-    const btn = BUTTON_CONFIG[row[key]] || {};
+        return rows
+            .filter(row => row[key])
+            .map(row => {
+                const btn = BUTTON_CONFIG[row[key]] || {};
 
-    const btnClass = btn.variant === "solid"
-        ? `btn btn-${btn.color || "secondary"}`
-        : `btn btn-outline-${btn.color || "secondary"}`;
-            return `
+                const btnClass = `btn btn-outline-${btn.color || "secondary"}`;
+                return `
                 <button className="btn btn-outline-${btn.color || "secondary"}">
                     <i className="bi bi-${btn.icon || "circle"}"></i>
                 </button>
             `;
-        })
-        .join("\n");
-};
+            })
+            .join("\n");
+    };
 
-const generateHeader = (title, buttons) => {
-    return `
+    const generateHeader = (title, buttons) => {
+        return `
     <div className="d-flex p-3 rounded-2 border border-black justify-content-between align-items-center mb-3 shadow-sm">
         <h2 className="mb-0">${title}</h2>
         <div className="d-flex gap-2">
             ${buttons}
         </div>
     </div>`;
-};
+    };
 
     const validRows = getValidRows(orderedRows);
 
-    const buttonRows = orderedRows.filter(row => row.designSCButtons);
+    const buttonRows = orderedRows.filter(row =>
+        row.designSCButtons &&
+        row.designSCButtons.toString().trim() !== ""
+    );
 
-// Header buttons (top right)
-const headerButtons = generateButtons(
-    buttonRows.filter(r =>
-        ["Add", "Delete", "Update", "Print", "Excel"].includes(r.designSCButtons)
-    ),
-    "designSCButtons"
-);
+    // Header buttons (top right)
+    const headerButtons = generateButtons(
+        buttonRows.filter(r =>
+            ["Add", "Delete", "Update", "Print", "Excel"].includes(r.designSCButtons)
+        ),
+        "designSCButtons"
+    );
 
-// Search buttons (inside form)
-const inputActionButtons = generateButtons(
-    buttonRows.filter(r =>
-        ["Search", "Refresh"].includes(r.designSCButtons)
-    ),
-    "designSCButtons"
-);
+    // Search buttons (inside form)
+    const inputActionButtons = generateButtons(
+        buttonRows.filter(r =>
+            ["Search", "Refresh"].includes(r.designSCButtons)
+        ),
+        "designSCButtons"
+    );
 
     const columnDefs = validRows.map(
         (col) => `    { headerName: "${col.fieldName}", field: "${col.fieldName}", flex: 1 }`
     );
 
-    
-    const inputControls = validRows
-        .filter((col) => col.designSCSelect)
-        .map((col) => {
 
-            const label = `            <label className="form-label fw-semibold">${col.fieldName}</label>`;
-            const type = col.designSCSelect;
-
-            if (type === "Text") {
-                return `          <div className="col-md-3">\n${label}\n            <input className="form-control" type="text" placeholder="Enter ${col.fieldName}" />\n          </div>`;
-            }
-
-            if (type === "Dropdown") {
-                return `          <div className="col-md-3">\n${label}\n            <Select options={[]} placeholder="Select ${col.fieldName}" />\n          </div>`;
-            }
-
-            if (type === "Date") {
-                return `          <div className="col-md-3">\n${label}\n            <input className="form-control" type="date" />\n          </div>`;
-            }
-
-            if (type === "Toggle") {
-                return `          <div className="col-md-3">\n${label}\n            <div className="form-check form-switch">
-                <input 
-                    className="form-check-input" 
-                    type="checkbox" 
-                    role="switch" 
-                    />
-                    </div>\n
-                </div>`;
-            }
-
-            if (type === "Number") {
-                return `          <div className="col-md-3">\n${label}\n
-                    <input 
-                        className="form-control" 
-                        type="number" 
-                        placeholder="Enter ${col.fieldName}"
-                        onKeyDown={(e) => {
-                            if (["e", "E", "+", "-"].includes(e.key)) {
-                                e.preventDefault();
-                            }
-                        }}
-                    />\n
-                </div>`;
-            }
-
-            return "";
-        })
-        .join("\n");
+const inputControls = validRows
+    .filter((col) => col.designSCSelect)
+    .map((col) =>
+        renderInputControl(
+            col,
+            col.designSCSelect,
+            3
+        )
+    )
+    .join("\n");
 
     return `import React from "react";
 import Select from "react-select";
@@ -165,10 +284,18 @@ ModuleRegistry.registerModules([AllCommunityModule]);
 provideGlobalGridOptions({ theme: "legacy" });
 
 const ${screenTitle}Screen = () => {
+
+  const { useState } = React;
   const columnDefs = [
 ${columnDefs.join(",\n")}
   ];
-  const rowData = [];
+  const rowData = [
+   {
+      ${validRows
+            .map(col => `${col.fieldName}: "Test"`)
+            .join(",\n")}
+   }
+];
 
   return (
     <div className="container-fluid p-3">
@@ -212,10 +339,27 @@ export const getFrontendAddDesignCode = (gridRef, objectRowData, detailsRowData)
     if (!gridRef.current || !gridRef.current.api) return "";
 
     gridRef.current.api.forEachNode((node) => {
+
         const data = node.data;
-        if (data && data.designAddScreenSelect && data.designAddScreenSelect.trim() !== "") {
+
+        if (!data) return;
+
+        const hasAddField =
+            data.designAddScreenSelect &&
+            data.designAddScreenSelect.toString().trim() !== "";
+
+        const hasAddButton =
+            data.designAddScreenButtons &&
+            data.designAddScreenButtons.toString().trim() !== "";
+
+        const hasGrid =
+            data.designAddScreenSelect &&
+            data.designAddScreenSelect.toString().trim().toUpperCase() === "GRID";
+
+        if (hasAddField || hasAddButton || hasGrid) {
             rows.push(data);
         }
+
     });
 
     const name = objectRowData.find((row) => row.object === "React")?.name;
@@ -234,38 +378,9 @@ export const getFrontendAddDesignCode = (gridRef, objectRowData, detailsRowData)
         return ar !== br ? ar - br : ac - bc;
     });
 
-    const buttonIcons = {
-    Save: { icon: "check", color: "success" },
-    Update: { icon: "pencil", color: "primary" },
-    Delete: { icon: "trash", color: "danger" },
-    Print: { icon: "printer", color: "dark" },
-    Excel: { icon: "file-earmark-excel", color: "success" },
-    Refresh: { icon: "arrow-clockwise", color: "secondary" }
-};
+    const buttonRows = rows.filter(row => row.designAddScreenButtons);
 
-const buttonRows = rows.filter(row => row.designAddScreenButtons);
-
-const generateButtons = (rows, key) => {
-    const buttonIcons = {
-        Add: { icon: "plus", color: "success" },
-        Save: { icon: "check", color: "success" },
-        Update: { icon: "pencil", color: "primary" },
-        Delete: { icon: "trash", color: "danger" },
-        Print: { icon: "printer", color: "dark" },
-        Excel: { icon: "file-earmark-excel", color: "success" },
-        Refresh: { icon: "arrow-clockwise", color: "secondary" }
-    };
-
-    return rows
-        .filter(row => row[key])
-        .map(row =>
-            `<button className="btn btn-outline-${buttonIcons[row[key]]?.color || "secondary"}">
-                <i className="bi bi-${buttonIcons[row[key]]?.icon || "circle"}"></i>
-            </button>`
-        ).join("\n");
-};
-
-const headerButtons = generateButtons(buttonRows, "designAddScreenButtons");
+    const headerButtons = generateButtons(buttonRows, "designAddScreenButtons");
 
     const groupedRows = {};
     orderedRows.forEach((col) => {
@@ -292,44 +407,10 @@ const headerButtons = generateButtons(buttonRows, "designAddScreenButtons");
             .join(",\n            ");
     }
 
-    const isGrid = (c) => c.designAddScreenSelect === "Grid";
+    const isGrid = (c) =>
+        c.designAddScreenSelect &&
+        c.designAddScreenSelect.toUpperCase() === "GRID";
 
-    const renderInputField = (col) => {
-        const tooltipAttr = col.addScreenTooltip ? ` title="${col.addScreenTooltip}"` : "";
-        const label = `            <label className="form-label fw-semibold">${col.fieldName}</label>`;
-        const size = col.colSize || 3;
-
-        const wrap = (inner) =>
-            `          <div className="col-md-${size}">\n${label}\n${inner}\n          </div>`;
-
-        switch (col.designAddScreenSelect) {
-            case "Text":
-                return wrap(`            <input className="form-control" type="text" ${tooltipAttr} placeholder="Enter ${col.fieldName}" />`);
-            case "Dropdown":
-                return wrap(`            <Select options={[]} placeholder="Select ${col.fieldName}" ${tooltipAttr} />`);
-            case "Date":
-                return wrap(`            <input className="form-control" type="date" ${tooltipAttr}/>`);
-            case "Number":
-                return wrap(`            <input className="form-control" type="number" ${tooltipAttr}/>`);
-            case "File":
-                return wrap(`            <input className="form-control" type="file" ${tooltipAttr}/>`);
-            case "Text Area":
-                return wrap(`            <textarea className="form-control" ${tooltipAttr}></textarea>`);
-            case "Toggle":
-                return wrap(`
-                <div className="form-check form-switch">
-                    <input 
-                        className="form-check-input" 
-                        type="checkbox" 
-                        role="switch" 
-                        ${tooltipAttr}
-                    />
-                </div>
-                `);
-            default:
-                return "";
-        }
-    };
 
     const renderInlineGrid = () => {
         return `          <div className="col-md-6">
@@ -348,7 +429,11 @@ const headerButtons = generateButtons(buttonRows, "designAddScreenButtons");
             if (isGrid(col)) {
                 layout += renderInlineGrid();
             } else {
-                layout += renderInputField(col);
+                layout += renderInputControl(
+    col,
+    col.designAddScreenSelect,
+    col.colSize || 3
+);
             }
             layout += "\n";
         });
@@ -359,13 +444,18 @@ const headerButtons = generateButtons(buttonRows, "designAddScreenButtons");
     return `import React from "react";
 import Select from "react-select";
 import { AgGridReact } from "ag-grid-react";
+import "ag-grid-community/styles/ag-grid.css";
+import "ag-grid-community/styles/ag-theme-alpine.css";
+import "bootstrap/dist/css/bootstrap.min.css";
+import "bootstrap-icons/font/bootstrap-icons.css";
 
 const Add${screenTitle}Screen = () => {
+
   return (
     <div className="container-fluid p-3">
 
-  {/* HEADER */}
-  <div className="d-flex p-3 rounded-2 border border-black justify-content-between align-items-center mb-3 shadow-sm">
+      {/* HEADER */}
+<div className="d-flex p-3 rounded-2 border border-black justify-content-between align-items-center mb-3 shadow-sm">
     <h2 className="mb-0">Add ${screenTitle}</h2>
     <div className="d-flex gap-2">
       ${headerButtons}
@@ -375,7 +465,7 @@ const Add${screenTitle}Screen = () => {
   {/* FORM */}
 ${layout}
 
-</div>
+    </div>
   );
 };
 
@@ -383,7 +473,12 @@ export default Add${screenTitle}Screen;`;
 };
 
 
-export const getFrontendCombinedDesignCode = (gridRef, objectRowData, detailsRowData) => {
+export const getFrontendCombinedDesignCode = (
+    gridRef,
+    objectRowData,
+    detailsRowData,
+    screens = []
+) => {
 
     if (!gridRef.current || !gridRef.current.api) return "";
 
@@ -399,81 +494,31 @@ export const getFrontendCombinedDesignCode = (gridRef, objectRowData, detailsRow
 
     const validRows = rows.filter(r => r.fieldName);
 
-    const BUTTON_CONFIG = {
-    Add: { icon: "plus", color: "success" },
-    Save: { icon: "check", color: "success" },
-    Update: { icon: "pencil", color: "primary" },
-    Delete: { icon: "trash", color: "danger" },
-    Print: { icon: "printer", color: "dark" },
-    Excel: { icon: "file-earmark-excel", color: "success" },
-    Search: { icon: "search", color: "primary" },
-    Refresh: { icon: "arrow-clockwise", color: "secondary" },
-    Close: { icon: "x-circle", color: "secondary", variant: "solid" }
-};
+    const buttonRows = rows.filter(r => r.designSCButtons);
 
-const generateButtons = (rows, key) => {
-    return rows
-        .filter(row => row[key])
-        .map(row => {
-            const btn = BUTTON_CONFIG[row[key]] || {};
+    // ✅ MOVE THIS UP
+    const addButtonRows = rows.filter(r => r.designAddScreenButtons);
 
-            const btnClass = btn.variant === "solid"
-                ? `btn btn-${btn.color || "secondary"}`
-                : `btn btn-outline-${btn.color || "secondary"}`;
+    // ✅ THEN USE IT
+    const addTopButtons = generateAddButtons(
+        addButtonRows.filter(r =>
+            (r.addScreenButtonPosition || "").toLowerCase() === "top"
+        )
+    );
 
-            return `
-                <button className="${btnClass}">
-                    <i className="bi bi-${btn.icon || "circle"}"></i>
-                </button>
-            `;
-        })
-        .join("\n");
-};
+    const addBottomButtons = generateAddButtons(
+        addButtonRows.filter(r =>
+            (r.addScreenButtonPosition || "").toLowerCase() === "bottom"
+        )
+    );
 
-const generateAddButtons = (rows) => {
-    return rows
-        .filter(row => row.designAddScreenButtons)
-        .map(row => {
-            const btn = BUTTON_CONFIG[row.designAddScreenButtons] || {};
-
-            const btnClass = btn.variant === "solid"
-                ? `btn btn-${btn.color || "secondary"}`
-                : `btn btn-outline-${btn.color || "secondary"}`;
-
-            return `
-                <button className="${btnClass}">
-                    <i className="bi bi-${btn.icon || "circle"} me-1"></i>
-                    ${row.designAddScreenButtons}
-                </button>
-            `;
-        })
-        .join("\n");
-};
-
-const buttonRows = rows.filter(r => r.designSCButtons);
-
-// ✅ MOVE THIS UP
-const addButtonRows = rows.filter(r => r.designAddScreenButtons);
-
-// ✅ THEN USE IT
-const addTopButtons = generateAddButtons(
-    addButtonRows.filter(r =>
-        (r.addScreenButtonPosition || "").toLowerCase() === "top"
-    )
-);
-
-const addBottomButtons = generateAddButtons(
-    addButtonRows.filter(r =>
-        (r.addScreenButtonPosition || "").toLowerCase() === "bottom"
-    )
-);
-
-const headerButtons = generateButtons(
-    buttonRows.filter(r =>
-        ["Add", "Delete", "Update", "Print", "Excel"].includes(r.designSCButtons)
-    ),
-    "designSCButtons"
-);
+    const headerButtons = generateButtons(
+        buttonRows.filter(r =>
+            ["Add", "Delete", "Update", "Print", "Excel"]
+                .includes(r.designSCButtons?.trim())
+        ),
+        "designSCButtons"
+    );
 
     // ================= COLUMN DEFS =================
     const columnDefs = validRows.map(
@@ -482,24 +527,27 @@ const headerButtons = generateButtons(
 
     // ================= SEARCH INPUTS =================
     const searchInputs = validRows
-        .filter(col => col.designSCSelect)
+        .filter(col =>
+            col.designSCSelect &&
+            col.designSCSelect.toString().trim() !== ""
+        )
         .map(col => {
-            const type = col.designSCSelect;
+            const type = col.designSCSelect?.toUpperCase();
 
             const base = `className="form-control" placeholder="Enter ${col.fieldName}"`;
 
             switch (type) {
-                case "Text":
+                case "TEXT":
                     return `<div className="col-md-3">
                         <input ${base} />
                     </div>`;
 
-                case "Dropdown":
+                case "DROPDOWN":
                     return `<div className="col-md-3">
                         <Select options={[]} placeholder="Select ${col.fieldName}" />
                     </div>`;
 
-                case "Date":
+                case "DATE":
                     return `<div className="col-md-3">
                         <input type="date" className="form-control" />
                     </div>`;
@@ -511,107 +559,492 @@ const headerButtons = generateButtons(
 
     // ================= ADD INPUTS =================
     const addInputs = validRows
-        .filter(col => col.designAddScreenSelect)
+        .filter(col =>
+            col.designAddScreenSelect &&
+            col.designAddScreenSelect.toString().trim() !== "" &&
+            col.designAddScreenSelect.toUpperCase() !== "GRID"
+        )
         .map(col => {
             const size = col.designAddOrderNo?.split(",")[2] || 3;
+            const type = col.designAddScreenSelect?.toUpperCase();
 
-            switch (col.designAddScreenSelect) {
-                case "Text":
+            switch (type) {
+                case "TEXT":
                     return `<div className="col-md-${size}">
-                        <input className="form-control" placeholder="Enter ${col.fieldName}" />
-                    </div>`;
+                    <input className="form-control" placeholder="Enter ${col.fieldName}" />
+                </div>`;
 
-                case "Dropdown":
-                    return `<div className="col-md-${size}">
-                        <Select options={[]} placeholder="Select ${col.fieldName}" />
-                    </div>`;
+                case "DROPDOWN":
+                    return `
+<div className="col-md-${size}">
+   <label className="form-label fw-semibold">
+      ${col.fieldName}
+   </label>
 
-                case "Date":
+   <Select
+      options={[]}
+      placeholder="Select ${col.fieldName}"
+   />
+</div>
+   `;
+
+                case "DATE":
                     return `<div className="col-md-${size}">
-                        <input type="date" className="form-control" />
-                    </div>`;
+                    <input type="date" className="form-control" />
+                </div>`;
+
+                case "NUMBER":
+                    return `<div className="col-md-${size}">
+                    <input type="number" className="form-control" />
+                </div>`;
+
+                case "TEXT AREA":
+                    return `<div className="col-md-${size}">
+                    <textarea className="form-control"></textarea>
+                </div>`;
+
+                case "TOGGLE":
+                    return `<div className="col-md-${size}">
+                    <div className="form-check form-switch">
+                        <input className="form-check-input" type="checkbox" />
+                    </div>
+                </div>`;
 
                 default:
                     return "";
             }
         }).join("\n");
 
+    const screenCases = screens.map(screen => {
+
+        console.log("SCREENS => ", screens);
+        console.log("ROWS => ", rows);
+
+        const screenRows = screen.rowData || [];
+
+        // ================= SCREEN BUTTONS =================
+
+        const screenButtonRows = screenRows
+            .filter(r => r.designSCButtons)
+            .map(r => ({
+                ...r,
+                designSCButtons: r.designSCButtons?.toString().trim(),
+                designAddScreenButtons: r.designAddScreenButtons?.toString().trim()
+            }));
+
+        const screenHeaderButtons = generateButtons(
+    screenButtonRows.filter(r =>
+        ["Add", "Delete", "Update"]
+            .includes(r.designSCButtons?.trim())
+    ),
+    "designSCButtons"
+);
+
+        const screenSearchButtons = generateButtons(
+    screenButtonRows.filter(r =>
+        ["Search", "Refresh", "Print", "Excel"]
+            .includes(r.designSCButtons?.trim())
+    ),
+    "designSCButtons"
+);
+
+        // ================= ADD SCREEN BUTTONS =================
+
+        const screenAddButtonRows = screenRows
+            .filter(r => r.designAddScreenButtons)
+            .map(r => ({
+                ...r,
+                designAddScreenButtons:
+                    r.designAddScreenButtons?.toString().trim(),
+                addScreenButtonPosition:
+                    r.addScreenButtonPosition?.toString().trim().toLowerCase()
+            }));
+
+        const screenAddTopButtons = generateAddButtons(
+            screenAddButtonRows.filter(
+                r => r.addScreenButtonPosition === "top"
+            )
+        );
+
+        const screenAddBottomButtons = generateAddButtons(
+            screenAddButtonRows.filter(
+                r => r.addScreenButtonPosition === "bottom"
+            )
+        );
+
+        // ================= SCREEN GRID =================
+
+        const screenColumnDefs = screenRows.map(
+            col =>
+                `{
+   headerName: "${col.fieldName}",
+   field: "${col.fieldName}",
+   flex: 1
+}`
+        );
+
+        // ================= SEARCH INPUTS =================
+
+        const screenSearchInputs = screenRows
+            .filter(col =>
+                col.designSCSelect &&
+                col.designSCSelect.toString().trim() !== ""
+            )
+            .map(col => {
+
+                const type = col.designSCSelect?.toUpperCase();
+
+                switch (type) {
+
+                    case "TEXT":
+                        return `
+<div className="col-md-3">
+   <label className="form-label fw-semibold">
+      ${col.fieldName}
+   </label>
+
+   <input
+      className="form-control"
+      placeholder="Enter ${col.fieldName}"
+   />
+</div>
+               `;
+
+                    case "DROPDOWN":
+                        return `
+               <div className="col-md-3">
+   <label className="form-label fw-semibold">
+      ${col.fieldName}
+   </label>
+
+   <Select
+      options={[]}
+      placeholder="Select ${col.fieldName}"
+   />
+</div>
+               `;
+
+                    case "DATE":
+                        return `
+<div className="col-md-3">
+   <label className="form-label fw-semibold">
+      ${col.fieldName}
+   </label>
+
+   <input
+      type="date"
+      className="form-control"
+   />
+</div>
+   `;
+
+                    default:
+                        return "";
+                }
+
+            }).join("\n");
+
+        // ================= ADD INPUTS =================
+
+        const screenAddInputs = screenRows
+            .filter(col =>
+                col.designAddScreenSelect &&
+                col.designAddScreenSelect.toString().trim() !== ""
+            )
+            .map(col => {
+
+                const size =
+                    col.designAddOrderNo?.split(",")[2] || 3;
+
+                const type =
+                    col.designAddScreenSelect?.toUpperCase();
+
+                switch (type) {
+
+                    case "TEXT":
+                        return `
+               <div className="col-md-${size}">
+   <label className="form-label fw-semibold">
+      ${col.fieldName}
+   </label>
+
+   <input
+      className="form-control"
+      placeholder="Enter ${col.fieldName}"
+   />
+</div>
+               `;
+
+                    case "DROPDOWN":
+                        return `
+<div className="col-md-${size}">
+   <label className="form-label fw-semibold">
+      ${col.fieldName}
+   </label>
+
+   <Select
+      options={[]}
+      placeholder="Select ${col.fieldName}"
+   />
+</div>
+   `;
+
+                    case "DATE":
+                        return `
+<div className="col-md-${size}">
+   <label className="form-label fw-semibold">
+      ${col.fieldName}
+   </label>
+
+   <input
+      type="date"
+      className="form-control"
+   />
+</div>
+   `;
+
+                    case "NUMBER":
+                        return `
+               <div className="col-md-${size}">
+                  <input
+                     type="number"
+                     className="form-control"
+                  />
+               </div>
+               `;
+
+                    case "TEXT AREA":
+                        return `
+               <div className="col-md-${size}">
+                  <textarea className="form-control"></textarea>
+               </div>
+               `;
+
+                    case "TOGGLE":
+                        return `
+               <div className="col-md-${size}">
+                  <div className="form-check form-switch">
+                     <input
+                        className="form-check-input"
+                        type="checkbox"
+                     />
+                  </div>
+               </div>
+               `;
+
+                    default:
+                        return "";
+                }
+
+            }).join("\n");
+
+        // ================= FINAL SCREEN =================
+
+        return `
+   case "${screen.screenName}":
+      return (
+         <>
+
+            {/* HEADER */}
+            <div className="d-flex p-3 rounded-2 border border-black justify-content-between align-items-center mb-3 shadow-sm">
+               <h2 className="mb-0">${screen.screenName}</h2>
+
+               <div className="d-flex gap-2">
+   ${screenHeaderButtons || ""}
+   ${screenAddTopButtons || ""}
+</div>
+            </div>
+
+            {/* ADD FORM */}
+            <div className="card p-3 mb-3">
+               <h5>Add ${screen.screenName}</h5>
+
+               <div className="row g-3">
+   ${screenAddInputs}
+
+   ${screenAddBottomButtons
+                ? `
+   <div className="col-12 d-flex gap-2 justify-content-end mt-3">
+      ${screenAddBottomButtons}
+   </div>
+   `
+                : ""
+            }
+</div>
+            </div>
+
+            {/* SEARCH */}
+            <div className="card p-3 mb-3">
+               <h5>Search Criteria</h5>
+
+               <div className="row g-3">
+
+                  ${screenSearchInputs}
+
+                  <div className="col-md-3 d-flex align-items-end gap-2">
+                     ${screenSearchButtons}
+                  </div>
+
+               </div>
+            </div>
+
+            {/* GRID */}
+            <div className="card p-2">
+
+               <div
+   className="ag-theme-alpine"
+   style={{
+      height: 300,
+      width: "100%"
+   }}
+>
+
+                  <AgGridReact
+                     columnDefs={[
+                        ${screenColumnDefs.join(",")}
+                     ]}
+                     rowData={rowData}
+                  />
+
+               </div>
+
+            </div>
+
+         </>
+      );
+   `;
+
+    }).join("\n");
+
+
     // ================= BUTTONS =================
 
 
     // ================= FINAL =================
+
     return `
 import React from "react";
 import Select from "react-select";
 import { AgGridReact } from "ag-grid-react";
+import "ag-grid-community/styles/ag-grid.css";
+import "ag-grid-community/styles/ag-theme-alpine.css";
 import "bootstrap/dist/css/bootstrap.min.css";
 import "bootstrap-icons/font/bootstrap-icons.css";
 
 const ${screenTitle}Screen = () => {
 
+  const { useState } = React;
+
+  const [activeTab, setActiveTab] = useState(
+  ${JSON.stringify(screens[0]?.screenName || "")}
+);
+
   const columnDefs = [
     ${columnDefs.join(",")}
   ];
 
-  const rowData = [];
+  const rowData = [
+   {
+      ${validRows
+            .map(col => `${col.fieldName}: "Test"`)
+            .join(",\n")}
+   }
+];
 
-  return (
+  const renderScreen = () => {
+
+  // IF NO SCREENS CONFIGURED
+if (${screens.length} <= 0) {
+   return (
+      <>
+
+         {/* HEADER */}
+         <div className="d-flex p-3 rounded-2 border border-black justify-content-between align-items-center mb-3 shadow-sm">
+            <h2 className="mb-0">${screenTitle}</h2>
+
+            <div className="d-flex gap-2">
+               ${headerButtons}
+            </div>
+         </div>
+
+         {/* ADD FORM */}
+         <div className="card p-3 mb-3">
+            <div className="row g-3">
+               ${addInputs}
+            </div>
+         </div>
+
+         {/* SEARCH */}
+         <div className="card p-3 mb-3">
+            <div className="row g-3">
+
+               ${searchInputs}
+
+               <div className="col-md-3 d-flex align-items-end gap-2">
+                  ${generateButtons(
+                buttonRows.filter(r =>
+                    ["Search", "Refresh"]
+                        .includes(r.designSCButtons?.trim())
+                ),
+                "designSCButtons"
+            )}
+               </div>
+
+            </div>
+         </div>
+
+         {/* GRID */}
+         <div className="card p-2">
+            <div
+               className="ag-theme-alpine"
+               style={{
+                  height: 300,
+                  width: "100%"
+               }}
+            >
+               <AgGridReact
+                  columnDefs={columnDefs}
+                  rowData={rowData}
+               />
+            </div>
+         </div>
+
+      </>
+   );
+}
+
+switch(activeTab){
+
+   ${screenCases}
+
+   default:
+      return null;
+}
+};
+
+return (
     <div className="container-fluid p-3">
 
-    {/* HEADER */}
-<div className="d-flex p-3 rounded-2 border border-black justify-content-between align-items-center mb-3 shadow-sm">
-  <h2 className="mb-0">${screenTitle}</h2>
-  <div className="d-flex gap-2">
-    ${headerButtons}
+{/* SCREEN NAVIGATION TABS */}
+{${screens.length} > 0 && (
+  <div className="d-flex gap-2 flex-wrap mb-3">
+    {${JSON.stringify(screens.map(s => s.screenName))}.map((tab, index) => (
+      <button
+        key={index}
+        className={
+          activeTab === tab
+            ? "btn btn-primary"
+            : "btn btn-outline-primary"
+        }
+        onClick={() => setActiveTab(tab)}
+      >
+        {tab}
+      </button>
+    ))}
   </div>
-</div>
+)}
 
-      {/* ADD FORM */}
-<div className="card p-3 mb-3">
-
-  {/* TOP BUTTONS */}
-  <div className="d-flex justify-content-end mb-2 gap-2">
-    ${addTopButtons}
-  </div>
-
-  <h5>Add ${screenTitle}</h5>
-
-  <div className="row g-3">
-  ${addInputs}
-</div>
-
-{/* BOTTOM BUTTONS */}
-<div className="d-flex justify-content-end gap-2 mt-3 border-top pt-3">
-  ${addBottomButtons}
-</div>
-
-</div>
-
-      {/* SEARCH */}
-      <div className="card p-3 mb-3">
-        <h5>Search Criteria</h5>
-        <div className="row g-3">
-          ${searchInputs}
-          <div className="col-md-3 d-flex align-items-end gap-2">
-  ${generateButtons(
-      buttonRows.filter(r =>
-          ["Search", "Refresh"].includes(r.designSCButtons)
-      ),
-      "designSCButtons"
-  )}
-</div>
-        </div>
-      </div>
-
-      {/* GRID */}
-      <div className="card p-2">
-        <div className="ag-theme-alpine" style={{ height: 300 }}>
-          <AgGridReact
-            columnDefs={columnDefs}
-            rowData={rowData}
-          />
-        </div>
-      </div>
+{renderScreen()}
 
     </div>
   );
@@ -621,3 +1054,38 @@ export default ${screenTitle}Screen;
 `;
 };
 
+export const getAllFrontendScreens = () => {
+
+    const savedScreens =
+        JSON.parse(localStorage.getItem("savedScreens")) || [];
+
+    if (savedScreens.length === 0) {
+        return "";
+    }
+
+    const screens =
+        savedScreens.map(s => ({
+            name: s.screenName
+        }));
+
+    const firstScreen = savedScreens[0];
+
+    const fakeGridRef = {
+        current: {
+            api: {
+                forEachNode: (callback) => {
+                    (firstScreen.rowData || []).forEach(row => {
+    callback({ data: row });
+});
+                }
+            }
+        }
+    };
+
+    return getFrontendCombinedDesignCode(
+        fakeGridRef,
+        firstScreen.objectRowData,
+        firstScreen.detailsRowData,
+        screens
+    );
+};

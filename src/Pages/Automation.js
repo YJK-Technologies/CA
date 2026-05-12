@@ -11,8 +11,8 @@ import { Button, Form, Row, Col } from 'react-bootstrap';
 import { FaPlus, FaMinus, FaCopy, FaCheckCircle } from 'react-icons/fa';
 import { provideGlobalGridOptions } from 'ag-grid-community';
 import { ModuleRegistry, AllCommunityModule } from 'ag-grid-community';
-import { getTableSQL, getStoredProcSQL } from './sqlGenerator';
-import { getNodeSingleCrudScript, getNodeLoopCrudScripts } from './nodeGenerator';
+import { getTableSQL, getStoredProcSQL, getAllSQLScripts, getPreviewTableSQL } from './sqlGenerator';
+import { getNodeSingleCrudScript, getNodeLoopCrudScripts, getAllNodeSingleCrudScripts, getAllNodeLoopCrudScripts, getAllNodeCrudScripts} from './nodeGenerator';
 import { getFrontendSearchDesignCode, getFrontendAddDesignCode } from './frontGenerator';
 import * as XLSX from "xlsx";
 import { getFrontendCombinedDesignCode } from './frontGenerator';
@@ -37,7 +37,12 @@ const Automation = () => {
     const [enableAudit, setEnableAudit] = useState(false);
     const fileInputRef = useRef();
     const [screenType, setScreenType] = useState("combined");
-    const [test, setTest] = useState('')
+    const STORAGE_KEY = "savedScreens";
+    
+
+
+    const [screens, setScreens] = useState([]);
+    const [activeScreen, setActiveScreen] = useState(null);
 
     const validDataTypes = [
         'INT', 'BIGINT', 'VARCHAR', 'TEXT', 'FLOAT',
@@ -127,44 +132,45 @@ const Automation = () => {
 
     const handleGenerateScreen = () => {
 
-    let code = "";
+        let code = "";
 
-    if (screenType === "search") {
-        code = getFrontendSearchDesignCode(mainGridRef, objectRowData);
-    }
+        if (screenType === "search") {
+            code = getFrontendSearchDesignCode(mainGridRef, objectRowData);
+        }
 
-    else if (screenType === "add") {
-        code = getFrontendAddDesignCode(mainGridRef, objectRowData, detailsRowData);
-    }
+        else if (screenType === "add") {
+            code = getFrontendAddDesignCode(mainGridRef, objectRowData, detailsRowData);
+        }
 
-    else if (screenType === "add-grid") {
-        // Same add function, but GRID fields will render automatically
-        code = getFrontendAddDesignCode(mainGridRef, objectRowData, detailsRowData);
-    }
+        else if (screenType === "add-grid") {
+            // Same add function, but GRID fields will render automatically
+            code = getFrontendAddDesignCode(mainGridRef, objectRowData, detailsRowData);
+        }
 
-    else if (screenType === "combined") {
-        code = getFrontendCombinedDesignCode(
-            mainGridRef,
-            objectRowData,
-            detailsRowData
+        else if (screenType === "combined") {
+            code = getFrontendCombinedDesignCode(
+                mainGridRef,
+                objectRowData,
+                detailsRowData,
+                screens
+            );
+        }
+
+        if (!code) {
+            alert("No valid data to generate screen");
+            return;
+        }
+
+        setSqlPreview(code);
+
+        setUiPreview(
+            <div>
+                {renderReactCodeFromString(code)}
+            </div>
         );
-    }
 
-    if (!code) {
-        alert("No valid data to generate screen");
-        return;
-    }
-
-    setSqlPreview(code);
-
-    setUiPreview(
-        <div>
-            {renderReactCodeFromString(code)}
-        </div>
-    );
-
-    setUiPreviewEnabled(true);
-};
+        setUiPreviewEnabled(true);
+    };
 
     const handleExcelUpload = (e) => {
         const file = e.target.files[0];
@@ -184,20 +190,112 @@ const Automation = () => {
         reader.readAsBinaryString(file);
     };
 
+    const normalizeValue = (value) => {
+        if (!value) return "";
+        return value.toString().trim().toUpperCase();
+    };
+
     const validateAndLoadData = (data) => {
         const errors = [];
 
+        const fieldNames = data.map(r => r.fieldName?.trim().toLowerCase());
+
+        const duplicateFields = fieldNames.filter(
+            (item, index) =>
+                item &&
+                fieldNames.indexOf(item) !== index
+        );
+
+        if (duplicateFields.length > 0) {
+            errors.push(`Duplicate field names found: ${[...new Set(duplicateFields)].join(", ")}`);
+        }
+
         const formattedData = data.map((row, index) => {
             const rowNum = index + 2; // Excel row (header = row 1)
+
+            // ================= COLUMN LEVEL VALIDATION =================
+
+            // fieldName validation
+            if (row.fieldName && !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(row.fieldName)) {
+                errors.push(`Row ${rowNum}: fieldName must start with letter/underscore and contain no spaces`);
+            }
+
+            // size validation (only for VARCHAR, NVARCHAR, DECIMAL)
+            if (row.size !== null && row.size !== undefined && row.size !== "") {
+                if (!/^\d+(,\d+)?$/.test(row.size)) {
+                    errors.push(`Row ${rowNum}: size must be number or number,number (e.g. 50 or 10,2)`);
+                }
+            }
+
+            // designSCOrderNo validation
+            if (row.designSCOrderNo !== null && row.designSCOrderNo !== undefined && row.designSCOrderNo !== "") {
+                if (!/^\d+$/.test(row.designSCOrderNo)) {
+                    errors.push(`Row ${rowNum}: designSCOrderNo must be a number`);
+                }
+            }
+
+            // designAddOrderNo validation (RCL format)
+            if (row.designAddOrderNo) {
+                const regex = /^\d+,\d+(?:,\d+)?$/;
+
+                if (!regex.test(row.designAddOrderNo)) {
+                    errors.push(`Row ${rowNum}: designAddOrderNo must be row,column or row,column,length`);
+                } else {
+                    const parts = row.designAddOrderNo.split(",").map(Number);
+                    if (parts.length === 3 && parts[2] > 12) {
+                        errors.push(`Row ${rowNum}: length (3rd value) cannot be greater than 12`);
+                    }
+                }
+            }
+
+            // designSCSelect validation
+            const validSCSelect = ["TEXT", "DROPDOWN", "DATE", "TOGGLE", "NUMBER"];
+            if (row.designSCSelect && !validSCSelect.includes(normalizeValue(row.designSCSelect))) {
+                errors.push(`Row ${rowNum}: Invalid designSCSelect value`);
+            }
+
+            // designAddScreenSelect validation
+            const validAddSelect = ["TEXT", "DROPDOWN", "DATE", "FILE", "NUMBER", "TEXT AREA", "GRID", "TOGGLE"];
+            if (row.designAddScreenSelect && !validAddSelect.includes(normalizeValue(row.designAddScreenSelect))) {
+                errors.push(`Row ${rowNum}: Invalid designAddScreenSelect value`);
+            }
+
+            // designSCButtons validation
+            const validSCButtons = ['SEARCH', 'REFRESH', 'ADD', 'DELETE', 'UPDATE', 'PRINT', 'EXCEL'];
+            if (row.designSCButtons && !validSCButtons.includes(normalizeValue(row.designSCButtons))) {
+                errors.push(`Row ${rowNum}: Invalid designSCButtons value`);
+            }
+
+            // designAddScreenButtons validation
+            const validAddButtons = ['SAVE', 'UPDATE', 'PRINT', 'EXCEL', 'REFRESH', 'CLOSE'];
+            if (row.designAddScreenButtons && !validAddButtons.includes(normalizeValue(row.designAddScreenButtons))) {
+                errors.push(`Row ${rowNum}: Invalid designAddScreenButtons value`);
+            }
+
+            // addScreenButtonPosition validation
+            if (row.addScreenButtonPosition && !["TOP", "BOTTOM"].includes(normalizeValue(row.addScreenButtonPosition))) {
+                errors.push(`Row ${rowNum}: addScreenButtonPosition must be Top or Bottom`);
+            }
 
             if (!row.fieldName) {
                 errors.push(`Row ${rowNum}: fieldName is required`);
             }
 
-            const dataType = row.dataType?.toUpperCase();
+            const dataType = normalizeValue(row.dataType);
+
+            // size required for VARCHAR/NVARCHAR/DECIMAL
+            if (["VARCHAR", "NVARCHAR", "DECIMAL"].includes(dataType) && !row.size) {
+                errors.push(`Row ${rowNum}: size is required for ${dataType}`);
+            }
 
             if (!validDataTypes.includes(dataType)) {
                 errors.push(`Row ${rowNum}: Invalid dataType`);
+            }
+
+            if (dataType === "GRID") {
+                if (!row.fieldName) {
+                    errors.push(`Row ${rowNum}: GRID must have fieldName`);
+                }
             }
 
             let constraintsArray = [];
@@ -244,13 +342,45 @@ const Automation = () => {
             }
 
             return {
-    ...row,
-    dataType,
-    constraints: constraintsArray,
+                ...row,
 
-    // ✅ FIX: map correct field
-    addScreenButtonPosition: row.addScreenButtonPosition || row.designAddScreenButtonPosition || ""
-};
+                fieldName: row.fieldName?.trim(),
+
+                dataType,
+
+                constraints: constraintsArray.map(c => normalizeValue(c)),
+
+                designSCSelect: row.designSCSelect
+                    ? row.designSCSelect.toString().trim()
+                    : "",
+
+                designSCButtons: row.designSCButtons
+                    ? row.designSCButtons.toString().trim()
+                        .toLowerCase()
+                        .replace(/\b\w/g, c => c.toUpperCase())
+                    : "",
+
+                designAddScreenSelect:
+                    dataType === "BIT"
+                        ? "TOGGLE"
+                        : normalizeValue(row.designAddScreenSelect),
+
+                designAddScreenButtons: row.designAddScreenButtons
+                    ? row.designAddScreenButtons.toString().trim()
+                        .toLowerCase()
+                        .replace(/\b\w/g, c => c.toUpperCase())
+                    : "",
+
+                addScreenButtonPosition: normalizeValue(
+                    row.addScreenButtonPosition || row.designAddScreenButtonPosition
+                ),
+
+                referenceTable: row.referenceTable?.trim(),
+                referenceColumn: row.referenceColumn?.trim(),
+
+                defaultValue: row.defaultValue?.trim(),
+                checkCondition: row.checkCondition?.trim(),
+            };
         });
 
         if (errors.length > 0) {
@@ -277,6 +407,128 @@ const Automation = () => {
         }
     }, [sqlPreview, rowData]);
 
+    useEffect(() => {
+        const savedScreens = localStorage.getItem(STORAGE_KEY);
+
+        if (savedScreens) {
+            const parsed = JSON.parse(savedScreens);
+            setScreens(parsed);
+
+            if (parsed.length > 0) {
+                setActiveScreen(parsed[0].screenName);
+
+                // load first screen data
+                setRowData(parsed[0].rowData || []);
+                setObjectRowData(parsed[0].objectRowData || []);
+                setDetailsRowData(parsed[0].detailsRowData || []);
+            }
+        }
+    }, []);
+
+    useEffect(() => {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(screens));
+    }, [screens]);
+
+    const handleSaveScreen = () => {
+
+    const gridRows = [];
+
+    // ✅ FIXED HERE
+    if (mainGridRef.current && mainGridRef.current.api) {
+        mainGridRef.current.api.forEachNode(node => {
+            if (node?.data) {
+                gridRows.push(node.data);
+            }
+        });
+    }
+
+    const reactName =
+        objectRowData.find(r => r.object === "React")?.name || "";
+
+    if (!reactName) {
+        alert("React Name is required");
+        return;
+    }
+
+    const screenData = {
+        screenName: reactName,
+        objectRowData,
+        rowData: gridRows,
+        detailsRowData,
+        screenType,
+        enableAudit
+    };
+
+    // Existing saved screens
+    const existing =
+        JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+
+    // Replace existing screen if same name
+    const filtered =
+        existing.filter(
+            s => s.screenName !== reactName
+        );
+
+    filtered.push(screenData);
+
+    localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify(filtered)
+    );
+
+    // ✅ UPDATE STATE IMMEDIATELY
+    setScreens(filtered);
+
+    // KEEP ONLY DB NAME
+    const dbRow =
+        objectRowData.find(r => r.object === "DB");
+
+    setObjectRowData([
+        {
+            object: "DB",
+            name: dbRow?.name || ""
+        },
+        { object: "Table", name: "" },
+        { object: "StoredProcedure", name: "" },
+        { object: "React", name: "" },
+        { object: "Node", name: "" }
+    ]);
+
+    // ✅ FIXED HERE
+    setRowData([]);
+    // Clear states
+    setRowData([]);
+    setDetailsRowData([]);
+
+    alert("Screen Saved Successfully");
+};
+
+    const handleClearScreens = () => {
+        localStorage.removeItem(STORAGE_KEY);
+
+        setScreens([]);
+        setActiveScreen(null);
+
+        setRowData([]);
+        setObjectRowData([]);
+        setDetailsRowData([]);
+    };
+
+    const handleTabClick = (screen) => {
+
+        setActiveScreen(screen.screenName);
+
+        setObjectRowData(screen.objectRowData || []);
+
+        setRowData(screen.rowData || []);
+
+        setDetailsRowData(screen.detailsRowData || []);
+
+        setScreenType(screen.screenType || "combined");
+
+        setEnableAudit(screen.enableAudit || false);
+    };
+
     const handleKeyDown = (e) => {
         if (e.key === "Enter") {
             const trimmedName = name.trim();
@@ -288,7 +540,8 @@ const Automation = () => {
 
             const isDuplicate = objectRowData.some(
                 (row) =>
-                    row.object.toLowerCase() === objectType.toLowerCase()
+                    row.object.toLowerCase() === objectType.toLowerCase() &&
+                    row.name.toLowerCase() === trimmedName.toLowerCase()
             );
 
             if (isDuplicate) {
@@ -333,22 +586,29 @@ const Automation = () => {
     const handleAdd = (rowIndex) => {
         const newRow = {
             fieldName: '',
-            dataType: 'VARCHAR',
-            size: '',
-            notNull: false,
-            primaryKey: false,
-            isForeignKey: false,
-            referenceTable: '',
-            referenceColumn: '',
-            tableFieldSelect: false,
-            nodeSelect: false,
-            designSCSelect: '',
-            designSCOrderNo: '',
-            designAddScreenSelect: '',
-            designAddOrderNo: '',
-            constraints: [],
-            defaultValue: '',
-            checkCondition: '',
+    dataType: 'VARCHAR',
+    size: null,
+    notNull: false,
+    primaryKey: false,
+    isForeignKey: false,
+    referenceTable: '',
+    referenceColumn: '',
+    tableFieldSelect: false,
+    nodeSelect: false,
+
+    designSCSelect: '',
+    designSCOrderNo: null,
+    designSCButtons: '',
+
+    designAddScreenSelect: '',
+    designAddOrderNo: '',
+    addScreenTooltip: '',
+    designAddScreenButtons: '',
+    addScreenButtonPosition: '',
+
+    constraints: [],
+    defaultValue: '',
+    checkCondition: '',
         };
 
         const updatedRows = [...rowData];
@@ -639,7 +899,7 @@ const Automation = () => {
             {
                 fieldName: '',
                 dataType: 'VARCHAR',
-                size: '',
+                size: null,
                 notNull: false,
                 primaryKey: false,
                 isForeignKey: false,
@@ -648,7 +908,7 @@ const Automation = () => {
                 tableFieldSelect: false,
                 nodeSelect: false,
                 designSCSelect: '',
-                designSCOrderNo: '',
+                designSCOrderNo: null,
                 designAddScreenSelect: '',
                 designAddOrderNo: '',
                 constraints: [],
@@ -662,21 +922,27 @@ const Automation = () => {
         setDetailsRowData(prev => [
             ...prev,
             {
-                fieldName: '',
-                dataType: 'VARCHAR',
-                size: '',
-                notNull: false,
-                primaryKey: false,
-                isForeignKey: false,
-                referenceTable: '',
-                referenceColumn: '',
-                tableFieldSelect: false,
-                nodeSelect: false,
-                designSCSelect: '',
-                designSCOrderNo: '',
-                designAddScreenSelect: '',
-                designAddOrderNo: ''
-            },
+    fieldName: '',
+    dataType: 'VARCHAR',
+    size: '',
+    referenceTable: '',
+    referenceColumn: '',
+
+    constraints: [],
+
+    defaultValue: '',
+    checkCondition: '',
+
+    designSCSelect: '',
+    designSCOrderNo: '',
+
+    designAddScreenSelect: '',
+    designAddOrderNo: '',
+
+    addScreenTooltip: '',
+    designAddScreenButtons: '',
+    addScreenButtonPosition: ''
+},
         ]);
     };
 
@@ -695,15 +961,35 @@ const Automation = () => {
     };
 
     const previewTableSQL = () => {
-        const tableScript = getTableSQL(
-            mainGridRef,
-            objectRowData,
-            detailsRowData,
-            detailsDefs,
-            enableAudit   // ✅ NEW
-        );
-        if (tableScript) setSqlPreview(tableScript);
-    };
+
+    // =========================
+    // MULTI SCREEN MODE
+    // =========================
+
+    if (screens.length > 0) {
+
+        const script =
+            getPreviewTableSQL(enableAudit);
+
+        setSqlPreview(script);
+
+        return;
+    }
+
+    // =========================
+    // SINGLE SCREEN MODE
+    // =========================
+
+    const script = getTableSQL(
+        mainGridRef,
+        objectRowData,
+        detailsRowData,
+        detailsDefs,
+        enableAudit
+    );
+
+    setSqlPreview(script);
+};
 
     const previewSPCode = () => {
         const spScript = getStoredProcSQL(
@@ -717,14 +1003,74 @@ const Automation = () => {
     };
 
     const previewNodeSingle = () => {
-        const singleNodeScript = getNodeSingleCrudScript(mainGridRef, objectRowData, detailsRowData, detailsDefs);
-        if (singleNodeScript) setSqlPreview(singleNodeScript);
-    };
+
+    // =========================
+    // MULTI SCREEN MODE
+    // =========================
+
+    if (screens.length > 0) {
+
+        const singleNodeScript =
+            getAllNodeSingleCrudScripts();
+
+        if (singleNodeScript) {
+            setSqlPreview(singleNodeScript);
+        }
+
+        return;
+    }
+
+    // =========================
+    // SINGLE SCREEN MODE
+    // =========================
+
+    const singleNodeScript =
+        getNodeSingleCrudScript(
+            mainGridRef,
+            objectRowData,
+            detailsDefs,
+            detailsRowData
+        );
+
+    if (singleNodeScript) {
+        setSqlPreview(singleNodeScript);
+    }
+};
 
     const previewNodeLoop = () => {
-        const loopNodeScript = getNodeLoopCrudScripts(mainGridRef, objectRowData, detailsRowData, detailsDefs);
-        if (loopNodeScript) setSqlPreview(loopNodeScript);
-    };
+
+    // =========================
+    // MULTI SCREEN MODE
+    // =========================
+
+    if (screens.length > 0) {
+
+        const loopNodeScript =
+            getAllNodeLoopCrudScripts();
+
+        if (loopNodeScript) {
+            setSqlPreview(loopNodeScript);
+        }
+
+        return;
+    }
+
+    // =========================
+    // SINGLE SCREEN MODE
+    // =========================
+
+    const loopNodeScript =
+        getNodeLoopCrudScripts(
+            mainGridRef,
+            objectRowData,
+            detailsDefs,
+            detailsRowData
+        );
+
+    if (loopNodeScript) {
+        setSqlPreview(loopNodeScript);
+    }
+};
 
     const generateFiles = () => {
         const zip = new JSZip();
@@ -788,13 +1134,23 @@ const Automation = () => {
         // ✅ Node Folder
         const nodeFolder = zip.folder("node");
 
-        const nodeSingle = getNodeSingleCrudScript(mainGridRef, objectRowData, detailsRowData, detailsDefs);
+        const nodeSingle = getNodeSingleCrudScript(
+    mainGridRef,
+    objectRowData,
+    detailsDefs,
+    detailsRowData
+);
         if (nodeSingle) {
             nodeFolder.file(`${reactName}_single.js`, nodeSingle);
             hasFiles = true;
         }
 
-        const nodeLoop = getNodeLoopCrudScripts(mainGridRef, objectRowData, detailsRowData, detailsDefs);
+        const nodeLoop = getNodeLoopCrudScripts(
+    mainGridRef,
+    objectRowData,
+    detailsDefs,
+    detailsRowData
+);;
         if (nodeLoop) {
             nodeFolder.file(`${reactName}_loop.js`, nodeLoop);
             hasFiles = true;
@@ -804,7 +1160,11 @@ const Automation = () => {
         const reactFolder = zip.folder("react");
 
         const searchDesign = getFrontendSearchDesignCode(mainGridRef, objectRowData);
-        const addDesign = getFrontendAddDesignCode(mainGridRef, objectRowData, rowData, detailsRowData);
+        const addDesign = getFrontendAddDesignCode(
+    mainGridRef,
+    objectRowData,
+    detailsRowData
+);
 
         if (searchDesign) {
             reactFolder.file(`${reactName}_search.js`, searchDesign);
@@ -943,22 +1303,32 @@ const Automation = () => {
     const handleDetailsAdd = (rowIndex) => {
         const newRow = {
             fieldName: '',
-            dataType: 'VARCHAR',
-            size: '',
-            notNull: false,
-            primaryKey: false,
-            isForeignKey: false,
-            referenceTable: '',
-            referenceColumn: '',
-            tableFieldSelect: false,
-            nodeSelect: false,
-            designSCSelect: '',
-            designSCOrderNo: '',
-            designAddScreenSelect: '',
-            designAddOrderNo: ''
+    dataType: 'VARCHAR',
+    size: null,
+    notNull: false,
+    primaryKey: false,
+    isForeignKey: false,
+    referenceTable: '',
+    referenceColumn: '',
+    tableFieldSelect: false,
+    nodeSelect: false,
+
+    designSCSelect: '',
+    designSCOrderNo: null,
+    designSCButtons: '',
+
+    designAddScreenSelect: '',
+    designAddOrderNo: '',
+    addScreenTooltip: '',
+    designAddScreenButtons: '',
+    addScreenButtonPosition: '',
+
+    constraints: [],
+    defaultValue: '',
+    checkCondition: '',
         };
 
-        const updatedRows = [...rowData];
+        const updatedRows = [...detailsRowData];
 
         updatedRows.splice(rowIndex + 1, 0, newRow);
 
@@ -1022,48 +1392,25 @@ const Automation = () => {
                 headerName: 'Size',
                 editable: true
             },
-            {
-                field: 'notNull',
-                headerName: 'NOT NULL',
-                cellRenderer: params => (
-                    <input
-                        type="checkbox"
-                        className="form-check-input"
-                        checked={params.value || false}
-                        onChange={e => {
-                            params.node.setDataValue('notNull', e.target.checked);
-                        }}
-                    />
-                ),
-            },
-            {
-                field: 'primaryKey',
-                headerName: 'Primary Key',
-                cellRenderer: params => (
-                    <input
-                        type="checkbox"
-                        className="form-check-input"
-                        checked={params.value || false}
-                        onChange={e => {
-                            params.node.setDataValue('primaryKey', e.target.checked);
-                        }}
-                    />
-                ),
-            },
-            {
-                field: 'isForeignKey',
-                headerName: 'Foreign Key',
-                cellRenderer: params => (
-                    <input
-                        type="checkbox"
-                        className="form-check-input"
-                        checked={params.value || false}
-                        onChange={e => {
-                            params.node.setDataValue('isForeignKey', e.target.checked);
-                        }}
-                    />
-                ),
-            },
+{
+    field: 'constraints',
+    headerName: 'Constraints',
+    cellRenderer: ConstraintRenderer,
+    editable: false,
+    minWidth: 220
+},
+{
+    field: 'defaultValue',
+    headerName: 'Default Value',
+    editable: true,
+    hide: true,
+},
+{
+    field: 'checkCondition',
+    headerName: 'Check Condition',
+    editable: true,
+    hide: true,
+},
             {
                 field: 'referenceTable',
                 headerName: 'Ref Table',
@@ -1093,6 +1440,21 @@ const Automation = () => {
         <div className="container-fluid">
             <h2 className="mb-4 text-primary fw-bold">Design Studio</h2>
 
+            {/* Show Tabs Only If Screens Exist */}
+            {screens.length > 0 && (
+                <div className="mb-3 d-flex gap-2 flex-wrap">
+                    {screens.map((screen, index) => (
+                        <Button
+                            key={index}
+                            variant={activeScreen === screen.screenName ? "primary" : "outline-primary"}
+                            onClick={() => handleTabClick(screen)}
+                        >
+                            {screen.screenName}
+                        </Button>
+                    ))}
+                </div>
+            )}
+
             <Row className="mb-3">
                 <Col md={3}>
                     <Form.Label>Object Type:</Form.Label>
@@ -1111,7 +1473,24 @@ const Automation = () => {
                         onKeyDown={handleKeyDown}
                         placeholder="Enter object name"
                     />
+
+                    <Button
+                        variant="success"
+                        className="mt-2 w-100"
+                        onClick={handleSaveScreen}
+                    >
+                        💾 Save Screen
+                    </Button>
+
+                    <Button
+                        variant="danger"
+                        className="mt-2 w-100"
+                        onClick={handleClearScreens}
+                    >
+                        🗑️ Clear Screens
+                    </Button>
                 </Col>
+
                 <Col md={3} className="d-flex justify-content-start gap-2 mb-2 mt-4">
                     <Button variant="secondary" onClick={handleDetailsClick}>
                         Details
@@ -1155,17 +1534,17 @@ const Automation = () => {
                 </Col>
 
                 <Col md={3}>
-    <Form.Label>Screen Type:</Form.Label>
-    <Form.Select
-        value={screenType}
-        onChange={(e) => setScreenType(e.target.value)}
-    >
-        <option value="search">Search Screen</option>
-        <option value="add">Add Screen</option>
-        <option value="add-grid">Add + Grid Screen</option>
-        <option value="combined">Add + Search + Grid Screen</option>
-    </Form.Select>
-</Col>
+                    <Form.Label>Screen Type:</Form.Label>
+                    <Form.Select
+                        value={screenType}
+                        onChange={(e) => setScreenType(e.target.value)}
+                    >
+                        <option value="search">Search Screen</option>
+                        <option value="add">Add Screen</option>
+                        <option value="add-grid">Add + Grid Screen</option>
+                        <option value="combined">Add + Search + Grid Screen</option>
+                    </Form.Select>
+                </Col>
             </Row>
 
             <div className="d-flex">
@@ -1201,6 +1580,8 @@ const Automation = () => {
 
                     // ✅ Existing logic (keep it)
                     onCellValueChanged={(params) => {
+
+                        // Remove AI if datatype changed
                         if (
                             params.colDef.field === "dataType" &&
                             !["INT", "BIGINT"].includes(params.newValue?.toUpperCase()) &&
@@ -1210,6 +1591,16 @@ const Automation = () => {
                                 "constraints",
                                 params.data.constraints.filter(v => v !== "AI")
                             );
+                        }
+
+                        // Auto clear size for non-size datatypes
+                        const sizeAllowed = ["VARCHAR", "NVARCHAR", "DECIMAL"];
+
+                        if (
+                            params.colDef.field === "dataType" &&
+                            !sizeAllowed.includes(params.newValue?.toUpperCase())
+                        ) {
+                            params.node.setDataValue("size", "");
                         }
 
                         updateColumnVisibility(params.api);
@@ -1224,7 +1615,39 @@ const Automation = () => {
                         <Button variant="danger" className="rounded-top ms-2" onClick={handleDetailsRemoveRow}><FaMinus /></Button>
                     </div>
                     <div className="ag-theme-alpine mt-3" style={{ height: 300 }}>
-                        <AgGridReact rowData={detailsRowData} columnDefs={detailsDefs} />
+                        <AgGridReact
+    rowData={detailsRowData}
+    columnDefs={detailsDefs}
+    defaultColDef={defaultColDef}
+    stopEditingWhenCellsLoseFocus={true}
+    onGridReady={(params) => {
+        updateColumnVisibility(params.api);
+    }}
+    onCellValueChanged={(params) => {
+
+        if (
+            params.colDef.field === "dataType" &&
+            !["INT", "BIGINT"].includes(params.newValue?.toUpperCase()) &&
+            params.data.constraints?.includes("AI")
+        ) {
+            params.node.setDataValue(
+                "constraints",
+                params.data.constraints.filter(v => v !== "AI")
+            );
+        }
+
+        const sizeAllowed = ["VARCHAR", "NVARCHAR", "DECIMAL"];
+
+        if (
+            params.colDef.field === "dataType" &&
+            !sizeAllowed.includes(params.newValue?.toUpperCase())
+        ) {
+            params.node.setDataValue("size", "");
+        }
+
+        updateColumnVisibility(params.api);
+    }}
+/>
                     </div>
                 </div>
             )}
@@ -1239,12 +1662,12 @@ const Automation = () => {
 
                 {/* ✅ ADD THIS */}
                 <Button
-    variant="success"
-    className="ms-2"
-    onClick={handleGenerateScreen}
->
-    🚀 Generate Screen
-</Button>
+                    variant="success"
+                    className="ms-2"
+                    onClick={handleGenerateScreen}
+                >
+                    🚀 Generate Screen
+                </Button>
             </div>
 
             <div className="mt-4">
@@ -1278,3 +1701,4 @@ const Automation = () => {
 };
 
 export default Automation;
+
