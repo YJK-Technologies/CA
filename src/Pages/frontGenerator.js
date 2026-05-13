@@ -185,7 +185,11 @@ export const getFrontendSearchDesignCode = (gridRef, objectRowData) => {
         }
     });
 
-    const addButtonRows = rows.filter(r => r.designAddScreenButtons);
+    const addButtonRows = rows.filter(
+        r =>
+            r.designAddScreenButtons &&
+            r.designAddScreenButtons.toString().trim() !== ""
+    );
 
     const name = objectRowData.find(row => row.object === 'React')?.name;
     if (!name || rows.length === 0) return "";
@@ -259,29 +263,24 @@ export const getFrontendSearchDesignCode = (gridRef, objectRowData) => {
     );
 
 
-const inputControls = validRows
-    .filter((col) => col.designSCSelect)
-    .map((col) =>
-        renderInputControl(
-            col,
-            col.designSCSelect,
-            3
+    const inputControls = validRows
+        .filter((col) => col.designSCSelect)
+        .map((col) =>
+            renderInputControl(
+                col,
+                col.designSCSelect,
+                3
+            )
         )
-    )
-    .join("\n");
+        .join("\n");
 
     return `import React from "react";
 import Select from "react-select";
 import { AgGridReact } from "ag-grid-react";
-import { AllCommunityModule, ModuleRegistry } from "ag-grid-community";
-import { provideGlobalGridOptions } from 'ag-grid-community';
 import "ag-grid-community/styles/ag-grid.css";
 import "ag-grid-community/styles/ag-theme-alpine.css";
 import "bootstrap/dist/css/bootstrap.min.css";
 import "bootstrap-icons/font/bootstrap-icons.css";
-
-ModuleRegistry.registerModules([AllCommunityModule]);
-provideGlobalGridOptions({ theme: "legacy" });
 
 const ${screenTitle}Screen = () => {
 
@@ -289,13 +288,7 @@ const ${screenTitle}Screen = () => {
   const columnDefs = [
 ${columnDefs.join(",\n")}
   ];
-  const rowData = [
-   {
-      ${validRows
-            .map(col => `${col.fieldName}: "Test"`)
-            .join(",\n")}
-   }
-];
+  const rowData = [];
 
   return (
     <div className="container-fluid p-3">
@@ -378,9 +371,29 @@ export const getFrontendAddDesignCode = (gridRef, objectRowData, detailsRowData)
         return ar !== br ? ar - br : ac - bc;
     });
 
-    const buttonRows = rows.filter(row => row.designAddScreenButtons);
+    const buttonRows = rows.filter(
+    row =>
+        row.designAddScreenButtons &&
+        row.designAddScreenButtons.toString().trim() !== ""
+);
 
-    const headerButtons = generateButtons(buttonRows, "designAddScreenButtons");
+// TOP BUTTONS → TITLE BAR
+const headerButtons = generateAddButtons(
+    buttonRows.filter(
+        row =>
+            (row.addScreenButtonPosition || "")
+                .toLowerCase() === "top"
+    )
+);
+
+// BOTTOM BUTTONS → BELOW INPUTS
+const bottomButtons = generateAddButtons(
+    buttonRows.filter(
+        row =>
+            (row.addScreenButtonPosition || "")
+                .toLowerCase() === "bottom"
+    )
+);
 
     const groupedRows = {};
     orderedRows.forEach((col) => {
@@ -430,10 +443,10 @@ export const getFrontendAddDesignCode = (gridRef, objectRowData, detailsRowData)
                 layout += renderInlineGrid();
             } else {
                 layout += renderInputControl(
-    col,
-    col.designAddScreenSelect,
-    col.colSize || 3
-);
+                    col,
+                    col.designAddScreenSelect,
+                    col.colSize || 3
+                );
             }
             layout += "\n";
         });
@@ -444,8 +457,10 @@ export const getFrontendAddDesignCode = (gridRef, objectRowData, detailsRowData)
     return `import React from "react";
 import Select from "react-select";
 import { AgGridReact } from "ag-grid-react";
+
 import "ag-grid-community/styles/ag-grid.css";
 import "ag-grid-community/styles/ag-theme-alpine.css";
+
 import "bootstrap/dist/css/bootstrap.min.css";
 import "bootstrap-icons/font/bootstrap-icons.css";
 
@@ -464,6 +479,12 @@ const Add${screenTitle}Screen = () => {
 
   {/* FORM */}
 ${layout}
+
+${bottomButtons ? `
+<div className="d-flex justify-content-end gap-2 mt-3">
+   ${bottomButtons}
+</div>
+` : ""}
 
     </div>
   );
@@ -497,7 +518,11 @@ export const getFrontendCombinedDesignCode = (
     const buttonRows = rows.filter(r => r.designSCButtons);
 
     // ✅ MOVE THIS UP
-    const addButtonRows = rows.filter(r => r.designAddScreenButtons);
+    const addButtonRows = rows.filter(
+        r =>
+            r.designAddScreenButtons &&
+            r.designAddScreenButtons.toString().trim() !== ""
+    );
 
     // ✅ THEN USE IT
     const addTopButtons = generateAddButtons(
@@ -514,7 +539,7 @@ export const getFrontendCombinedDesignCode = (
 
     const headerButtons = generateButtons(
         buttonRows.filter(r =>
-            ["Add", "Delete", "Update", "Print", "Excel"]
+            ["Add", "Delete", "Update"]
                 .includes(r.designSCButtons?.trim())
         ),
         "designSCButtons"
@@ -538,19 +563,42 @@ export const getFrontendCombinedDesignCode = (
 
             switch (type) {
                 case "TEXT":
-                    return `<div className="col-md-3">
-                        <input ${base} />
-                    </div>`;
+    return `
+<div className="col-md-3">
+   <label className="form-label fw-semibold">
+      ${col.fieldName}
+   </label>
+
+   <input
+      ${base}
+   />
+</div>`;
 
                 case "DROPDOWN":
-                    return `<div className="col-md-3">
-                        <Select options={[]} placeholder="Select ${col.fieldName}" />
-                    </div>`;
+    return `
+<div className="col-md-3">
+   <label className="form-label fw-semibold">
+      ${col.fieldName}
+   </label>
+
+   <Select
+      options={[]}
+      placeholder="Select ${col.fieldName}"
+   />
+</div>`;
 
                 case "DATE":
-                    return `<div className="col-md-3">
-                        <input type="date" className="form-control" />
-                    </div>`;
+    return `
+<div className="col-md-3">
+   <label className="form-label fw-semibold">
+      ${col.fieldName}
+   </label>
+
+   <input
+      type="date"
+      className="form-control"
+   />
+</div>`;
 
                 default:
                     return "";
@@ -570,9 +618,17 @@ export const getFrontendCombinedDesignCode = (
 
             switch (type) {
                 case "TEXT":
-                    return `<div className="col-md-${size}">
-                    <input className="form-control" placeholder="Enter ${col.fieldName}" />
-                </div>`;
+                    return `
+<div className="col-md-${size}">
+   <label className="form-label fw-semibold">
+      ${col.fieldName}
+   </label>
+
+   <input
+      className="form-control"
+      placeholder="Enter ${col.fieldName}"
+   />
+</div>`;
 
                 case "DROPDOWN":
                     return `
@@ -589,26 +645,55 @@ export const getFrontendCombinedDesignCode = (
    `;
 
                 case "DATE":
-                    return `<div className="col-md-${size}">
-                    <input type="date" className="form-control" />
-                </div>`;
+                    return `
+<div className="col-md-${size}">
+   <label className="form-label fw-semibold">
+      ${col.fieldName}
+   </label>
+
+   <input
+      type="date"
+      className="form-control"
+   />
+</div>`;
 
                 case "NUMBER":
-                    return `<div className="col-md-${size}">
-                    <input type="number" className="form-control" />
-                </div>`;
+                    return `
+<div className="col-md-${size}">
+   <label className="form-label fw-semibold">
+      ${col.fieldName}
+   </label>
+
+   <input
+      type="number"
+      className="form-control"
+   />
+</div>`;
 
                 case "TEXT AREA":
-                    return `<div className="col-md-${size}">
-                    <textarea className="form-control"></textarea>
-                </div>`;
+                    return `
+<div className="col-md-${size}">
+   <label className="form-label fw-semibold">
+      ${col.fieldName}
+   </label>
+
+   <textarea className="form-control"></textarea>
+</div>`;
 
                 case "TOGGLE":
-                    return `<div className="col-md-${size}">
-                    <div className="form-check form-switch">
-                        <input className="form-check-input" type="checkbox" />
-                    </div>
-                </div>`;
+                    return `
+<div className="col-md-${size}">
+   <label className="form-label fw-semibold">
+      ${col.fieldName}
+   </label>
+
+   <div className="form-check form-switch">
+      <input
+         className="form-check-input"
+         type="checkbox"
+      />
+   </div>
+</div>`;
 
                 default:
                     return "";
@@ -617,10 +702,13 @@ export const getFrontendCombinedDesignCode = (
 
     const screenCases = screens.map(screen => {
 
+
         console.log("SCREENS => ", screens);
         console.log("ROWS => ", rows);
 
         const screenRows = screen.rowData || [];
+
+        const screenRowData = `[]`;
 
         // ================= SCREEN BUTTONS =================
 
@@ -633,20 +721,20 @@ export const getFrontendCombinedDesignCode = (
             }));
 
         const screenHeaderButtons = generateButtons(
-    screenButtonRows.filter(r =>
-        ["Add", "Delete", "Update"]
-            .includes(r.designSCButtons?.trim())
-    ),
-    "designSCButtons"
-);
+            screenButtonRows.filter(r =>
+                ["Add", "Delete", "Update"]
+                    .includes(r.designSCButtons?.trim())
+            ),
+            "designSCButtons"
+        );
 
         const screenSearchButtons = generateButtons(
-    screenButtonRows.filter(r =>
-        ["Search", "Refresh", "Print", "Excel"]
-            .includes(r.designSCButtons?.trim())
-    ),
-    "designSCButtons"
-);
+            screenButtonRows.filter(r =>
+                ["Search", "Refresh", "Print", "Excel"]
+                    .includes(r.designSCButtons?.trim())
+            ),
+            "designSCButtons"
+        );
 
         // ================= ADD SCREEN BUTTONS =================
 
@@ -674,14 +762,15 @@ export const getFrontendCombinedDesignCode = (
 
         // ================= SCREEN GRID =================
 
-        const screenColumnDefs = screenRows.map(
-            col =>
-                `{
+        const screenColumnDefs = screenRows
+            .filter(col => col.fieldName)
+            .map(
+                col => `{
    headerName: "${col.fieldName}",
    field: "${col.fieldName}",
    flex: 1
 }`
-        );
+            );
 
         // ================= SEARCH INPUTS =================
 
@@ -759,11 +848,38 @@ export const getFrontendCombinedDesignCode = (
                 const type =
                     col.designAddScreenSelect?.toUpperCase();
 
+                // ================= GRID =================
+
+                if (type === "GRID") {
+
+                    return `
+<div className="col-md-${size}">
+   <div
+      className="ag-theme-alpine"
+      style={{
+         height: 300,
+         width: "100%"
+      }}
+   >
+      <AgGridReact
+         columnDefs={[
+            ${screenColumnDefs.join(",")}
+         ]}
+         rowData={rowData}
+         pagination={true}
+      />
+   </div>
+</div>
+`;
+                }
+
+                // ================= NORMAL INPUTS =================
+
                 switch (type) {
 
                     case "TEXT":
                         return `
-               <div className="col-md-${size}">
+<div className="col-md-${size}">
    <label className="form-label fw-semibold">
       ${col.fieldName}
    </label>
@@ -773,7 +889,7 @@ export const getFrontendCombinedDesignCode = (
       placeholder="Enter ${col.fieldName}"
    />
 </div>
-               `;
+`;
 
                     case "DROPDOWN":
                         return `
@@ -787,7 +903,7 @@ export const getFrontendCombinedDesignCode = (
       placeholder="Select ${col.fieldName}"
    />
 </div>
-   `;
+`;
 
                     case "DATE":
                         return `
@@ -801,36 +917,36 @@ export const getFrontendCombinedDesignCode = (
       className="form-control"
    />
 </div>
-   `;
+`;
 
                     case "NUMBER":
                         return `
-               <div className="col-md-${size}">
-                  <input
-                     type="number"
-                     className="form-control"
-                  />
-               </div>
-               `;
+<div className="col-md-${size}">
+   <input
+      type="number"
+      className="form-control"
+   />
+</div>
+`;
 
                     case "TEXT AREA":
                         return `
-               <div className="col-md-${size}">
-                  <textarea className="form-control"></textarea>
-               </div>
-               `;
+<div className="col-md-${size}">
+   <textarea className="form-control"></textarea>
+</div>
+`;
 
                     case "TOGGLE":
                         return `
-               <div className="col-md-${size}">
-                  <div className="form-check form-switch">
-                     <input
-                        className="form-check-input"
-                        type="checkbox"
-                     />
-                  </div>
-               </div>
-               `;
+<div className="col-md-${size}">
+   <div className="form-check form-switch">
+      <input
+         className="form-check-input"
+         type="checkbox"
+      />
+   </div>
+</div>
+`;
 
                     default:
                         return "";
@@ -841,8 +957,14 @@ export const getFrontendCombinedDesignCode = (
         // ================= FINAL SCREEN =================
 
         return `
+
+/* =============================================
+   SCREEN : ${screen.screenName}
+============================================= */
+
    case "${screen.screenName}":
       return (
+
          <>
 
             {/* HEADER */}
@@ -900,11 +1022,11 @@ export const getFrontendCombinedDesignCode = (
 >
 
                   <AgGridReact
-                     columnDefs={[
-                        ${screenColumnDefs.join(",")}
-                     ]}
-                     rowData={rowData}
-                  />
+   columnDefs={[
+      ${screenColumnDefs.join(",")}
+   ]}
+   rowData={${screenRowData}}
+/>
 
                </div>
 
@@ -923,17 +1045,12 @@ export const getFrontendCombinedDesignCode = (
     // ================= FINAL =================
 
     return `
-import React from "react";
-import Select from "react-select";
-import { AgGridReact } from "ag-grid-react";
-import "ag-grid-community/styles/ag-grid.css";
-import "ag-grid-community/styles/ag-theme-alpine.css";
-import "bootstrap/dist/css/bootstrap.min.css";
-import "bootstrap-icons/font/bootstrap-icons.css";
+
+const { useState } = React;
+
+
 
 const ${screenTitle}Screen = () => {
-
-  const { useState } = React;
 
   const [activeTab, setActiveTab] = useState(
   ${JSON.stringify(screens[0]?.screenName || "")}
@@ -943,13 +1060,7 @@ const ${screenTitle}Screen = () => {
     ${columnDefs.join(",")}
   ];
 
-  const rowData = [
-   {
-      ${validRows
-            .map(col => `${col.fieldName}: "Test"`)
-            .join(",\n")}
-   }
-];
+  const rowData = [];
 
   const renderScreen = () => {
 
@@ -959,20 +1070,35 @@ if (${screens.length} <= 0) {
       <>
 
          {/* HEADER */}
-         <div className="d-flex p-3 rounded-2 border border-black justify-content-between align-items-center mb-3 shadow-sm">
-            <h2 className="mb-0">${screenTitle}</h2>
+<div className="d-flex p-3 rounded-2 border border-black justify-content-between align-items-center mb-3 shadow-sm">
 
-            <div className="d-flex gap-2">
-               ${headerButtons}
-            </div>
-         </div>
+   <h2 className="mb-0">${screenTitle}</h2>
+
+   <div className="d-flex gap-2">
+      ${headerButtons}
+      ${addTopButtons}
+   </div>
+
+</div>
 
          {/* ADD FORM */}
-         <div className="card p-3 mb-3">
-            <div className="row g-3">
-               ${addInputs}
-            </div>
-         </div>
+<div className="card p-3 mb-3">
+
+   <div className="row g-3">
+
+      ${addInputs}
+
+      ${addBottomButtons
+            ? `
+      <div className="col-12 d-flex gap-2 justify-content-end mt-3">
+         ${addBottomButtons}
+      </div>
+      `
+            : ""
+        }
+
+   </div>
+</div>
 
          {/* SEARCH */}
          <div className="card p-3 mb-3">
@@ -982,12 +1108,12 @@ if (${screens.length} <= 0) {
 
                <div className="col-md-3 d-flex align-items-end gap-2">
                   ${generateButtons(
-                buttonRows.filter(r =>
-                    ["Search", "Refresh"]
-                        .includes(r.designSCButtons?.trim())
-                ),
-                "designSCButtons"
-            )}
+            buttonRows.filter(r =>
+                ["Search", "Refresh", "Print", "Excel"]
+                    .includes(r.designSCButtons?.trim())
+            ),
+            "designSCButtons"
+        )}
                </div>
 
             </div>
@@ -1003,9 +1129,9 @@ if (${screens.length} <= 0) {
                }}
             >
                <AgGridReact
-                  columnDefs={columnDefs}
-                  rowData={rowData}
-               />
+   columnDefs={columnDefs}
+   rowData={rowData}
+/>
             </div>
          </div>
 
@@ -1063,20 +1189,31 @@ export const getAllFrontendScreens = () => {
         return "";
     }
 
-    const screens =
-        savedScreens.map(s => ({
-            name: s.screenName
-        }));
+    // ✅ Pass full screen objects
+    const screens = savedScreens.map(screen => ({
+        screenName: screen.screenName,
+        rowData: screen.rowData || screen.gridData || [],
+        objectRowData: screen.objectRowData || [],
+        detailsRowData: screen.detailsRowData || [],
+        detailsDefs: screen.detailsDefs || []
+    }));
 
+    // ✅ Use first screen only for base structure
     const firstScreen = savedScreens[0];
 
     const fakeGridRef = {
         current: {
             api: {
                 forEachNode: (callback) => {
-                    (firstScreen.rowData || []).forEach(row => {
-    callback({ data: row });
-});
+
+                    const rows =
+                        firstScreen.rowData ||
+                        firstScreen.gridData ||
+                        [];
+
+                    rows.forEach(row => {
+                        callback({ data: row });
+                    });
                 }
             }
         }
@@ -1088,4 +1225,76 @@ export const getAllFrontendScreens = () => {
         firstScreen.detailsRowData,
         screens
     );
+};
+
+export const getAllFrontendCode = () => {
+
+    const savedScreens =
+        JSON.parse(localStorage.getItem("savedScreens")) || [];
+
+    let finalCode = "";
+
+    savedScreens.forEach(screen => {
+
+        const fakeGridRef = {
+            current: {
+                api: {
+                    forEachNode: (callback) => {
+
+                        const rows =
+                            screen.rowData ||
+                            screen.gridData ||
+                            [];
+
+                        rows.forEach(row => {
+                            callback({ data: row });
+                        });
+                    }
+                }
+            }
+        };
+
+        finalCode += `
+/* =====================================================
+   SCREEN : ${screen.screenName}
+===================================================== */
+`;
+
+        // ================= SEARCH SCREEN =================
+
+        finalCode += `
+
+/* =====================================================
+   SEARCH SCREEN
+===================================================== */
+
+`;
+
+        finalCode += getFrontendSearchDesignCode(
+            fakeGridRef,
+            screen.objectRowData
+        );
+
+        finalCode += `\n\n`;
+
+        // ================= ADD SCREEN =================
+
+        finalCode += `
+
+/* =====================================================
+   ADD SCREEN
+===================================================== */
+
+`;
+
+        finalCode += getFrontendAddDesignCode(
+            fakeGridRef,
+            screen.objectRowData,
+            screen.detailsRowData
+        );
+
+        finalCode += `\n\n`;
+    });
+
+    return finalCode;
 };
