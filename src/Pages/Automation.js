@@ -11,11 +11,22 @@ import { Button, Form, Row, Col } from 'react-bootstrap';
 import { FaPlus, FaMinus, FaCopy, FaCheckCircle } from 'react-icons/fa';
 import { provideGlobalGridOptions } from 'ag-grid-community';
 import { ModuleRegistry, AllCommunityModule } from 'ag-grid-community';
-import { getTableSQL, getStoredProcSQL, getAllSQLScripts, getPreviewTableSQL } from './sqlGenerator';
 import { getNodeSingleCrudScript, getNodeLoopCrudScripts, getAllNodeSingleCrudScripts, getAllNodeLoopCrudScripts, getAllNodeCrudScripts} from './nodeGenerator';
-import { getFrontendSearchDesignCode, getFrontendAddDesignCode } from './frontGenerator';
-import * as XLSX from "xlsx";
-import { getFrontendCombinedDesignCode } from './frontGenerator';
+import {
+    getFrontendSearchDesignCode,
+    getFrontendAddDesignCode,
+    getFrontendCombinedDesignCode,
+    getAllFrontendCode,
+    getAllFrontendScreens
+} from './frontGenerator';
+import * as XLSX from "xlsx";   
+import {
+    getTableSQL,
+    getStoredProcSQL,
+    getAllStoredProcSQL,
+    getAllSQLScripts,
+    getPreviewTableSQL
+} from './sqlGenerator';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 provideGlobalGridOptions({ theme: "legacy" });
@@ -148,13 +159,23 @@ const Automation = () => {
         }
 
         else if (screenType === "combined") {
-            code = getFrontendCombinedDesignCode(
-                mainGridRef,
-                objectRowData,
-                detailsRowData,
-                screens
-            );
-        }
+
+    // MULTI SCREEN MODE
+    if (screens.length > 0) {
+
+    code = getAllFrontendScreens();
+
+} else {
+
+        // SINGLE SCREEN MODE
+        code = getFrontendCombinedDesignCode(
+            mainGridRef,
+            objectRowData,
+            detailsRowData,
+            screens
+        );
+    }
+}
 
         if (!code) {
             alert("No valid data to generate screen");
@@ -992,15 +1013,39 @@ const Automation = () => {
 };
 
     const previewSPCode = () => {
-        const spScript = getStoredProcSQL(
-            mainGridRef,
-            objectRowData,
-            detailsRowData,
-            detailsDefs,
-            enableAudit   // ✅ NEW
-        );
-        if (spScript) setSqlPreview(spScript);
-    };
+
+    // =========================
+    // MULTI SCREEN MODE
+    // =========================
+
+    if (screens.length > 0) {
+
+        const spScript =
+            getAllStoredProcSQL(enableAudit);
+
+        if (spScript) {
+            setSqlPreview(spScript);
+        }
+
+        return;
+    }
+
+    // =========================
+    // SINGLE SCREEN MODE
+    // =========================
+
+    const spScript = getStoredProcSQL(
+        mainGridRef,
+        objectRowData,
+        detailsRowData,
+        detailsDefs,
+        enableAudit
+    );
+
+    if (spScript) {
+        setSqlPreview(spScript);
+    }
+};
 
     const previewNodeSingle = () => {
 
@@ -1187,39 +1232,61 @@ const Automation = () => {
     };
 
     const renderReactCodeFromString = (codeString) => {
-        try {
 
-            // 1. Remove import/export/ModuleRegistry lines — critical!
-            const cleanedCode = codeString
-                .replace(/import .*;?$/gm, '')
-                .replace(/ModuleRegistry\.registerModules\(.*\);?/gm, '')
-                .replace(/provideGlobalGridOptions\(.*\);?/gm, '')
-                .replace(/export default .*;?/gm, '');
+    try {
 
-            // console.log(cleanedCode)
+        // Remove imports + exports only
+        let cleanedCode = codeString
+            .replace(/^import .*;$/gm, '')
+            .replace(/^export default .*;$/gm, '')
+            .trim();
 
-            // 2. Extract component name (e.g., CustomerScreen)
-            const match = cleanedCode.match(/const (\w+)Screen/);
-            if (!match) return <div className="text-danger">❌ Component not found in code</div>;
-            const componentName = match[1];
+        // Find component name safely
+        const componentMatch =
+            cleanedCode.match(/const\s+(\w+Screen)\s*=\s*\(\)\s*=>/);
 
-            // 3. Compile JSX
-            const compiled = Babel.transform(cleanedCode, {
-                presets: ['react'],
-            }).code;
+        if (!componentMatch) {
 
-            // 4. Evaluate and render
-            const Component = new Function('React', 'Select', 'AgGridReact', `${compiled}; return ${componentName}Screen;`)(
-                React,
-                Select,
-                AgGridReact
+            return (
+                <div className="text-danger">
+                    ❌ Component function not found
+                </div>
             );
-
-            return <Component />;
-        } catch (err) {
-            return <div className="text-danger">❌ Error in preview: ${err.message}</div>;
         }
-    };
+
+        const componentName = componentMatch[1];
+
+        // Compile JSX
+        const compiledCode = Babel.transform(cleanedCode, {
+            presets: ['react']
+        }).code;
+
+        // Create executable component
+        const Component = new Function(
+            'React',
+            'Select',
+            'AgGridReact',
+            `
+            ${compiledCode}
+            return ${componentName};
+            `
+        )(
+            React,
+            Select,
+            AgGridReact
+        );
+
+        return <Component />;
+
+    } catch (err) {
+
+        return (
+            <div className="text-danger">
+                ❌ Error in preview: {err.message}
+            </div>
+        );
+    }
+};
 
     const handleGenerateBothDesigns = () => {
         let searchCode = "";
