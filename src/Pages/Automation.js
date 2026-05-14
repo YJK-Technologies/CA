@@ -104,7 +104,7 @@ const Automation = () => {
             "designSCOrderNo",
             "designSCButtons",
             "designAddScreenSelect",
-            "designAddOrderNo",
+            "RCL",
             "addScreenTooltip",
             "designAddScreenButtons",
             "addScreenButtonPosition"
@@ -200,13 +200,16 @@ const Automation = () => {
         const reader = new FileReader();
 
         reader.onload = (evt) => {
-            const binaryStr = evt.target.result;
-            const workbook = XLSX.read(binaryStr, { type: "binary" });
-            const sheet = workbook.Sheets[workbook.SheetNames[0]];
-            const data = XLSX.utils.sheet_to_json(sheet);
+    const binaryStr = evt.target.result;
+    const workbook = XLSX.read(binaryStr, { type: "binary" });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const data = XLSX.utils.sheet_to_json(sheet);
 
-            validateAndLoadData(data);
-        };
+    validateAndLoadData(data);
+
+    // ✅ RESET INPUT VALUE
+    e.target.value = "";
+};
 
         reader.readAsBinaryString(file);
     };
@@ -256,18 +259,21 @@ const Automation = () => {
             }
 
             // designAddOrderNo validation (RCL format)
-            if (row.designAddOrderNo) {
-                const regex = /^\d+,\d+(?:,\d+)?$/;
+            const addOrderValue = row.RCL || row.designAddOrderNo;
 
-                if (!regex.test(row.designAddOrderNo)) {
-                    errors.push(`Row ${rowNum}: designAddOrderNo must be row,column or row,column,length`);
-                } else {
-                    const parts = row.designAddOrderNo.split(",").map(Number);
-                    if (parts.length === 3 && parts[2] > 12) {
-                        errors.push(`Row ${rowNum}: length (3rd value) cannot be greater than 12`);
-                    }
-                }
-            }
+if (addOrderValue) {
+    const regex = /^\d+,\d+(?:,\d+)?$/;
+
+    if (!regex.test(addOrderValue)) {
+        errors.push(`Row ${rowNum}: designAddOrderNo must be row,column or row,column,length`);
+    } else {
+        const parts = addOrderValue.split(",").map(Number);
+
+        if (parts.length === 3 && parts[2] > 12) {
+            errors.push(`Row ${rowNum}: length (3rd value) cannot be greater than 12`);
+        }
+    }
+}
 
             // designSCSelect validation
             const validSCSelect = ["TEXT", "DROPDOWN", "DATE", "TOGGLE", "NUMBER"];
@@ -364,6 +370,8 @@ const Automation = () => {
 
             return {
                 ...row,
+
+                designAddOrderNo: row.RCL || row.designAddOrderNo || "",
 
                 fieldName: row.fieldName?.trim(),
 
@@ -501,27 +509,24 @@ const Automation = () => {
     setScreens(filtered);
 
     // KEEP ONLY DB NAME
-    const dbRow =
-        objectRowData.find(r => r.object === "DB");
+    // KEEP ONLY DB ROW
+const dbRow =
+    objectRowData.find(r => r.object === "DB");
 
-    setObjectRowData([
-        {
+setObjectRowData(
+    dbRow?.name
+        ? [{
             object: "DB",
-            name: dbRow?.name || ""
-        },
-        { object: "Table", name: "" },
-        { object: "StoredProcedure", name: "" },
-        { object: "React", name: "" },
-        { object: "Node", name: "" }
-    ]);
+            name: dbRow.name
+        }]
+        : []
+);
 
-    // ✅ FIXED HERE
-    setRowData([]);
-    // Clear states
-    setRowData([]);
-    setDetailsRowData([]);
+// Clear grids
+setRowData([]);
+setDetailsRowData([]);
 
-    alert("Screen Saved Successfully");
+alert("Screen Saved Successfully");
 };
 
     const handleClearScreens = () => {
@@ -1504,7 +1509,7 @@ const Automation = () => {
     };
 
     return (
-        <div className="container-fluid">
+        <div className="container-fluid py-4 px-4">
             <h2 className="mb-4 text-primary fw-bold">Design Studio</h2>
 
             {/* Show Tabs Only If Screens Exist */}
@@ -1522,100 +1527,125 @@ const Automation = () => {
                 </div>
             )}
 
-            <Row className="mb-3">
-                <Col md={3}>
-                    <Form.Label>Object Type:</Form.Label>
-                    <Form.Select value={objectType} onChange={e => setObjectType(e.target.value)}>
-                        <option value="DB">DB Name</option>
-                        <option value="Table">Table Name</option>
-                        <option value="StoredProcedure">SP Name</option>
-                        <option value="React">React Name</option>
-                    </Form.Select>
-                </Col>
-                <Col md={3}>
-                    <Form.Label>Object Name:</Form.Label>
-                    <Form.Control
-                        value={name}
-                        onChange={e => setName(e.target.value)}
-                        onKeyDown={handleKeyDown}
-                        placeholder="Enter object name"
-                    />
+            <Row className="g-3 align-items-end mb-4">
 
-                    <Button
-                        variant="success"
-                        className="mt-2 w-100"
-                        onClick={handleSaveScreen}
-                    >
-                        💾 Save Screen
-                    </Button>
+    {/* Object Type */}
+    <Col md={3}>
+        <Form.Label className="fw-semibold">Object Type</Form.Label>
 
-                    <Button
-                        variant="danger"
-                        className="mt-2 w-100"
-                        onClick={handleClearScreens}
-                    >
-                        🗑️ Clear Screens
-                    </Button>
-                </Col>
+        <Form.Select
+            value={objectType}
+            onChange={e => setObjectType(e.target.value)}
+        >
+            <option value="DB">DB Name</option>
+            <option value="Table">Table Name</option>
+            <option value="StoredProcedure">SP Name</option>
+            <option value="React">React Name</option>
+        </Form.Select>
+    </Col>
 
-                <Col md={3} className="d-flex justify-content-start gap-2 mb-2 mt-4">
-                    <Button variant="secondary" onClick={handleDetailsClick}>
-                        Details
-                    </Button>
-                </Col>
+    {/* Object Name */}
+    <Col md={4}>
+        <Form.Label className="fw-semibold">Object Name</Form.Label>
 
-                <Col md={6} className="d-flex align-items-center justify-content-end mt-4">
-                    <div className="d-flex align-items-center gap-3">
+        <Form.Control
+            value={name}
+            onChange={e => setName(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Enter object name"
+        />
+    </Col>
 
-                        {/* Checkbox */}
-                        <Form.Check
-                            type="checkbox"
-                            label="Enable Audit Columns"
-                            checked={enableAudit}
-                            onChange={(e) => setEnableAudit(e.target.checked)}
-                        />
+    {/* Details Button */}
+    <Col md={1} className="d-grid">
+        <Button
+            variant="secondary"
+            onClick={handleDetailsClick}
+        >
+            Details
+        </Button>
+    </Col>
 
-                        {/* Download Button */}
-                        <Button variant="secondary" onClick={downloadExcelTemplate}>
-                            ⬇️ Download
-                        </Button>
+    {/* Screen Type */}
+    <Col md={4}>
+        <Form.Label className="fw-semibold">Screen Type</Form.Label>
 
-                        {/* Hidden File Input */}
-                        <input
-                            type="file"
-                            accept=".xlsx"
-                            ref={fileInputRef}
-                            onChange={handleExcelUpload}
-                            style={{ display: "none" }}
-                        />
+        <Form.Select
+            value={screenType}
+            onChange={(e) => setScreenType(e.target.value)}
+        >
+            <option value="search">Search Screen</option>
+            <option value="add">Add Screen</option>
+            <option value="add-grid">Add + Grid Screen</option>
+            <option value="combined">Add + Search + Grid Screen</option>
+        </Form.Select>
+    </Col>
 
-                        {/* Upload Button */}
-                        <Button
-                            variant="primary"
-                            onClick={() => fileInputRef.current.click()}
-                        >
-                            📤 Upload Excel
-                        </Button>
+    {/* Save / Clear Buttons */}
+    <Col md={4}>
+        <div className="d-grid gap-2">
+            <Button
+                variant="success"
+                onClick={handleSaveScreen}
+            >
+                💾 Save Screen
+            </Button>
 
-                    </div>
-                </Col>
+            <Button
+                variant="danger"
+                onClick={handleClearScreens}
+            >
+                🗑️ Clear Screens
+            </Button>
+        </div>
+    </Col>
 
-                <Col md={3}>
-                    <Form.Label>Screen Type:</Form.Label>
-                    <Form.Select
-                        value={screenType}
-                        onChange={(e) => setScreenType(e.target.value)}
-                    >
-                        <option value="search">Search Screen</option>
-                        <option value="add">Add Screen</option>
-                        <option value="add-grid">Add + Grid Screen</option>
-                        <option value="combined">Add + Search + Grid Screen</option>
-                    </Form.Select>
-                </Col>
-            </Row>
+    {/* Audit + Excel Actions */}
+    <Col md={8}>
+        <div className="d-flex flex-wrap gap-2 align-items-center h-100">
 
-            <div className="d-flex">
-                <div className="ag-theme-alpine mb-3 me-5" style={{ height: 200, width: 500 }}>
+            <Form.Check
+                type="checkbox"
+                label="Enable Audit Columns"
+                checked={enableAudit}
+                onChange={(e) => setEnableAudit(e.target.checked)}
+            />
+
+            <Button
+                variant="outline-secondary"
+                onClick={downloadExcelTemplate}
+            >
+                ⬇ Download Template
+            </Button>
+
+            <input
+                type="file"
+                accept=".xlsx"
+                ref={fileInputRef}
+                onChange={handleExcelUpload}
+                style={{ display: "none" }}
+            />
+
+            <Button
+                variant="outline-primary"
+                onClick={() => fileInputRef.current.click()}
+            >
+                📤 Upload Excel
+            </Button>
+        </div>
+    </Col>
+
+</Row>
+
+            <div className="card shadow-sm p-3 mb-4">
+                <div
+    className="ag-theme-alpine mb-4"
+    style={{
+        height: 200,
+        width: "100%",
+        maxWidth: "600px"
+    }}
+>
                     <AgGridReact
                         ref={objectGridRef}
                         rowData={objectRowData}
@@ -1626,10 +1656,31 @@ const Automation = () => {
                 </div>
             </div>
 
-            <div className="d-flex justify-content-end mb-2">
-                <Button variant="primary" className="rounded-top" onClick={handleAddRow}><FaPlus /></Button>
-                <Button variant="danger" className="rounded-top ms-2" onClick={handleRemoveRow}><FaMinus /></Button>
-            </div>
+            <div className="d-flex justify-content-between align-items-center mb-2">
+
+    <h5 className="mb-0 fw-semibold">
+        Main Configuration
+    </h5>
+
+    <div className="d-flex gap-2">
+        <Button
+            variant="primary"
+            className="rounded-top"
+            onClick={handleAddRow}
+        >
+            <FaPlus />
+        </Button>
+
+        <Button
+            variant="danger"
+            className="rounded-top"
+            onClick={handleRemoveRow}
+        >
+            <FaMinus />
+        </Button>
+    </div>
+
+</div>
 
             <div className="ag-theme-alpine mb-4" style={{ height: 350 }}>
                 <AgGridReact
@@ -1677,10 +1728,33 @@ const Automation = () => {
 
             {detailsDefs && (
                 <div className="mb-3">
-                    <div className="d-flex justify-content-end mb-3">
-                        <Button variant="primary" className="rounded-top" onClick={handleDetailsAddRow}><FaPlus /></Button>
-                        <Button variant="danger" className="rounded-top ms-2" onClick={handleDetailsRemoveRow}><FaMinus /></Button>
-                    </div>
+                    <div className="d-flex justify-content-between align-items-center mb-3">
+
+    <h5 className="mb-0 fw-semibold">
+        Details Grid
+    </h5>
+
+    <div className="d-flex gap-2">
+
+        <Button
+            variant="primary"
+            className="rounded-top"
+            onClick={handleDetailsAddRow}
+        >
+            <FaPlus />
+        </Button>
+
+        <Button
+            variant="danger"
+            className="rounded-top"
+            onClick={handleDetailsRemoveRow}
+        >
+            <FaMinus />
+        </Button>
+
+    </div>
+
+</div>
                     <div className="ag-theme-alpine mt-3" style={{ height: 300 }}>
                         <AgGridReact
     rowData={detailsRowData}
@@ -1720,22 +1794,54 @@ const Automation = () => {
             )}
 
             <div className="mb-4">
-                <Button variant="success" className="me-2" onClick={generateFiles}>Generate Files</Button>
-                <Button variant="info" className="me-2" onClick={previewTableSQL}>Preview Table SQL</Button>
-                <Button variant="warning" className="me-2" onClick={previewSPCode}>Preview SP Code</Button>
-                <Button variant="warning" className="me-2" onClick={previewNodeSingle}>⚙️ Preview Node Insert (Single)</Button>
-                <Button variant="dark" className="me-2" onClick={previewNodeLoop}>🔁 Preview Node Insert (Loop)</Button>
-                {/* <Button variant="primary" className="me-2" onClick={handleGenerateBothDesigns}>🧩 Debug Both Designs</Button> */}
 
-                {/* ✅ ADD THIS */}
-                <Button
-                    variant="success"
-                    className="ms-2"
-                    onClick={handleGenerateScreen}
-                >
-                    🚀 Generate Screen
-                </Button>
-            </div>
+    <div className="d-flex flex-wrap gap-3">
+
+        <Button
+            variant="success"
+            onClick={generateFiles}
+        >
+            Generate Files
+        </Button>
+
+        <Button
+            variant="info"
+            onClick={previewTableSQL}
+        >
+            Preview Table SQL
+        </Button>
+
+        <Button
+            variant="warning"
+            onClick={previewSPCode}
+        >
+            Preview SP Code
+        </Button>
+
+        <Button
+            variant="dark"
+            onClick={previewNodeSingle}
+        >
+            ⚙️ Node Insert (Single)
+        </Button>
+
+        <Button
+            variant="secondary"
+            onClick={previewNodeLoop}
+        >
+            🔁 Node Insert (Loop)
+        </Button>
+
+        <Button
+            variant="primary"
+            onClick={handleGenerateScreen}
+        >
+            🚀 Generate Screen
+        </Button>
+
+    </div>
+
+</div>
 
             <div className="mt-4">
                 <div className="d-flex justify-content-between align-items-center mb-2">
