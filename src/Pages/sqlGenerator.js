@@ -146,8 +146,8 @@ checkConstraints.forEach(col => {
 
     // ✅ ADD AUDIT COLUMNS BEFORE CLOSING TABLE
 if (enableAudit) {
-    lines.push(`  [company_code] [udd_company_code]`);
-    lines.push(`  [created_by] [udd_created_by]`);
+    lines.push(`  [company_code] [udd_company_code] NOT NULL`);
+    lines.push(`  [created_by] [udd_created_by] NOT NULL`);
     lines.push(`  [created_date] [udd_created_date]`);
     lines.push(`  [modified_by] [udd_modified_by]`);
     lines.push(`  [modified_date] [udd_modified_date]`);
@@ -216,8 +216,8 @@ detailCHK.forEach(col => {
 
             // ✅ Audit for Details Table
 if (enableAudit) {
-    detailLines.push(`  [company_code] [udd_company_code]`);
-    detailLines.push(`  [created_by] [udd_created_by]`);
+    detailLines.push(`  [company_code] [udd_company_code] NOT NULL`);
+    detailLines.push(`  [created_by] [udd_created_by] NOT NULL`);
     detailLines.push(`  [created_date] [udd_created_date]`);
     detailLines.push(`  [modified_by] [udd_modified_by]`);
     detailLines.push(`  [modified_date] [udd_modified_date]`);
@@ -366,6 +366,128 @@ return isStringType(col.dataType)
 
         let script = `USE [${dbName}];\nGO\n\nCREATE PROCEDURE [dbo].[${spName}]\n(\n    @mode udd_mode,\n${inputParams}\n)\nAS\nBEGIN\n`;
 
+// =========================
+// NULL HANDLING
+// =========================
+
+const nullHandling = paramRows
+    .map(col => {
+
+        const field = col.fieldName;
+
+        const datatype = col.dataType?.toUpperCase();
+
+        // NUMBER TYPES
+        if (
+            [
+                "INT",
+                "BIGINT",
+                "SMALLINT",
+                "TINYINT",
+                "DECIMAL",
+                "NUMERIC",
+                "FLOAT",
+                "REAL",
+                "MONEY",
+                "SMALLMONEY"
+            ].includes(datatype)
+        ) {
+
+            return `    SELECT @${field} = ISNULL(@${field},0)`;
+        }
+
+        // TEXT / DATE / OTHER TYPES
+        return `    SELECT @${field} = ISNULL(RTRIM(LTRIM(@${field})),'')`;
+
+    })
+    .join('\n');
+
+// =========================
+// DATE EMPTY TO NULL
+// =========================
+
+const dateNullHandling = paramRows
+    .filter(col =>
+        [
+            "DATE",
+            "DATETIME",
+            "DATETIME2",
+            "SMALLDATETIME"
+        ].includes(col.dataType?.toUpperCase())
+    )
+    .map(col => {
+
+        const field = col.fieldName;
+
+        return `
+    IF @${field} = ''
+        SET @${field} = NULL`;
+
+    })
+    .join('\n');
+
+// =========================
+// NOT NULL VALIDATIONS
+// =========================
+
+const notNullValidation = paramRows
+    .filter(col =>
+    hasConstraint(col.constraints, [
+        "NN",
+        "NOT NULL",
+        "PK",
+        "PRIMARY KEY"
+    ])
+)
+    .map(col => {
+
+        const field = col.fieldName;
+
+        const datatype = col.dataType?.toUpperCase();
+
+// =========================
+// NUMBER TYPES
+// =========================
+
+if (
+    [
+        "INT",
+        "BIGINT",
+        "SMALLINT",
+        "TINYINT",
+        "DECIMAL",
+        "NUMERIC",
+        "FLOAT",
+        "REAL",
+        "MONEY",
+        "SMALLMONEY"
+    ].includes(datatype)
+) {
+
+    return `
+    IF ISNULL(@${field}, 0) = 0
+        OR @${field} IS NULL
+    BEGIN
+        RAISERROR('${field} should not be blank',16,3)
+        RETURN
+    END`;
+}
+
+// =========================
+// TEXT / DATE TYPES
+// =========================
+
+return `
+    IF ISNULL(TRIM(@${field}), '') = ''
+        OR @${field} IS NULL
+    BEGIN
+        RAISERROR('${field} should not be blank',16,3)
+        RETURN
+    END`;
+
+    })
+    .join('\n');
+
 // ✅ VARBINARY conversion block
 if (varbinaryCols.length > 0) {
     script += '\n    -- VARBINARY conversion\n';
@@ -376,15 +498,22 @@ if (varbinaryCols.length > 0) {
     });
 }
 
-        // INSERT
-        script += `
+// INSERT
+script += `
     IF @mode = 'I'
     BEGIN
+
+${nullHandling}
+
+${dateNullHandling}
+
+${notNullValidation}
+
         INSERT INTO ${tblName} (${insertFields})
         VALUES (${insertValues})
     END`;
-
-        // UPDATE
+    
+    // UPDATE
         if (primaryKeyCol) {
             script += `
 
@@ -437,11 +566,28 @@ GO
 
 if (enableAudit) {
     spRows.push(
-        { fieldName: 'company_code', dataType: 'VARCHAR' },
-        { fieldName: 'created_by', dataType: 'VARCHAR' },
-        { fieldName: 'created_date', dataType: 'DATETIME' },
-        { fieldName: 'modified_by', dataType: 'VARCHAR' },
-        { fieldName: 'modified_date', dataType: 'DATETIME' }
+        {
+            fieldName: 'company_code',
+            dataType: 'VARCHAR',
+            constraints: 'NN'
+        },
+        {
+            fieldName: 'created_by',
+            dataType: 'VARCHAR',
+            constraints: 'NN'
+        },
+        {
+            fieldName: 'created_date',
+            dataType: 'DATETIME'
+        },
+        {
+            fieldName: 'modified_by',
+            dataType: 'VARCHAR'
+        },
+        {
+            fieldName: 'modified_date',
+            dataType: 'DATETIME'
+        }
     );
 }
 
