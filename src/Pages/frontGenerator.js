@@ -103,18 +103,42 @@ const renderInputControl = (col, type, size = 3) => {
 </div>`;
 
         case "FILE":
-            return `
+
+    let acceptType = "*";
+
+    switch ((col.fileType || "").toUpperCase()) {
+
+        case "IMAGE":
+            acceptType = "image/*";
+            break;
+
+        case "VIDEO":
+            acceptType = "video/*";
+            break;
+
+        case "AUDIO":
+            acceptType = "audio/*";
+            break;
+
+        case "FILE":
+            acceptType =
+                ".pdf,.doc,.docx,.xls,.xlsx,.txt,.zip";
+            break;
+
+        default:
+            acceptType = "*";
+    }
+
+    return `
 <div className="col-md-${size}">
    ${label}
 
    <input
       type="file"
       className="form-control"
+      accept="${acceptType}"
    />
 </div>`;
-
-        default:
-            return "";
     }
 };
 
@@ -695,6 +719,47 @@ export const getFrontendCombinedDesignCode = (
    </div>
 </div>`;
 
+case "FILE":
+
+    let acceptType = "*";
+
+    switch ((col.fileType || "").toUpperCase()) {
+
+        case "IMAGE":
+            acceptType = "image/*";
+            break;
+
+        case "VIDEO":
+            acceptType = "video/*";
+            break;
+
+        case "AUDIO":
+            acceptType = "audio/*";
+            break;
+
+        case "FILE":
+            acceptType =
+                ".pdf,.doc,.docx,.xls,.xlsx,.txt,.zip";
+            break;
+
+        default:
+            acceptType = "*";
+    }
+
+    return `
+<div className="col-md-${size}">
+   <label className="form-label fw-semibold">
+      ${col.fieldName}
+   </label>
+
+   <input
+      type="file"
+      className="form-control"
+      accept="${acceptType}"
+   />
+</div>
+`;
+
                 default:
                     return "";
             }
@@ -948,6 +1013,47 @@ export const getFrontendCombinedDesignCode = (
 </div>
 `;
 
+                    case "FILE":
+
+    let acceptType = "*";
+
+    switch ((col.fileType || "").toUpperCase()) {
+
+        case "IMAGE":
+            acceptType = "image/*";
+            break;
+
+        case "VIDEO":
+            acceptType = "video/*";
+            break;
+
+        case "AUDIO":
+            acceptType = "audio/*";
+            break;
+
+        case "FILE":
+            acceptType =
+                ".pdf,.doc,.docx,.xls,.xlsx,.txt,.zip";
+            break;
+
+        default:
+            acceptType = "*";
+    }
+
+    return `
+<div className="col-md-${size}">
+   <label className="form-label fw-semibold">
+      ${col.fieldName}
+   </label>
+
+   <input
+      type="file"
+      className="form-control"
+      accept="${acceptType}"
+   />
+</div>
+`;
+
                     default:
                         return "";
                 }
@@ -1044,11 +1150,19 @@ export const getFrontendCombinedDesignCode = (
 
     // ================= FINAL =================
 
-    return `
+return `
+
+import React from "react";
+import Select from "react-select";
+import { AgGridReact } from "ag-grid-react";
+
+import "ag-grid-community/styles/ag-grid.css";
+import "ag-grid-community/styles/ag-theme-alpine.css";
+
+import "bootstrap/dist/css/bootstrap.min.css";
+import "bootstrap-icons/font/bootstrap-icons.css";
 
 const { useState } = React;
-
-
 
 const ${screenTitle}Screen = () => {
 

@@ -11,7 +11,7 @@ import { Button, Form, Row, Col } from 'react-bootstrap';
 import { FaPlus, FaMinus, FaCopy, FaCheckCircle } from 'react-icons/fa';
 import { provideGlobalGridOptions } from 'ag-grid-community';
 import { ModuleRegistry, AllCommunityModule } from 'ag-grid-community';
-import { getNodeSingleCrudScript, getNodeLoopCrudScripts, getAllNodeSingleCrudScripts, getAllNodeLoopCrudScripts, getAllNodeCrudScripts} from './nodeGenerator';
+import { getNodeSingleCrudScript, getNodeLoopCrudScripts, getAllNodeSingleCrudScripts, getAllNodeLoopCrudScripts, getAllNodeCrudScripts } from './nodeGenerator';
 import {
     getFrontendSearchDesignCode,
     getFrontendAddDesignCode,
@@ -19,13 +19,14 @@ import {
     getAllFrontendCode,
     getAllFrontendScreens
 } from './frontGenerator';
-import * as XLSX from "xlsx";   
+import * as XLSX from "xlsx";
 import {
     getTableSQL,
     getStoredProcSQL,
     getAllStoredProcSQL,
     getAllSQLScripts,
-    getPreviewTableSQL
+    getPreviewTableSQL,
+    getOnlyUDDSQL
 } from './sqlGenerator';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -49,7 +50,7 @@ const Automation = () => {
     const fileInputRef = useRef();
     const [screenType, setScreenType] = useState("combined");
     const STORAGE_KEY = "savedScreens";
-    
+
 
 
     const [screens, setScreens] = useState([]);
@@ -95,6 +96,7 @@ const Automation = () => {
             "fieldName",
             "dataType",
             "size",
+            "fileType",
             "constraints",
             "referenceTable",
             "referenceColumn",
@@ -132,7 +134,14 @@ const Automation = () => {
                 showInputMessage: 1,
                 showErrorMessage: 1,
                 formula1: '"Primary Key,Not Null,Unique,Foreign Key,Default,Check,Auto Increment"'
-            }
+            },
+            E2: {
+    type: "list",
+    allowBlank: 1,
+    showInputMessage: 1,
+    showErrorMessage: 1,
+    formula1: '"Image,File,Audio,Video"'
+},
         };
 
         const wb = XLSX.utils.book_new();
@@ -160,22 +169,22 @@ const Automation = () => {
 
         else if (screenType === "combined") {
 
-    // MULTI SCREEN MODE
-    if (screens.length > 0) {
+            // MULTI SCREEN MODE
+            if (screens.length > 0) {
 
-    code = getAllFrontendScreens();
+                code = getAllFrontendScreens();
 
-} else {
+            } else {
 
-        // SINGLE SCREEN MODE
-        code = getFrontendCombinedDesignCode(
-            mainGridRef,
-            objectRowData,
-            detailsRowData,
-            screens
-        );
-    }
-}
+                // SINGLE SCREEN MODE
+                code = getFrontendCombinedDesignCode(
+                    mainGridRef,
+                    objectRowData,
+                    detailsRowData,
+                    screens
+                );
+            }
+        }
 
         if (!code) {
             alert("No valid data to generate screen");
@@ -191,6 +200,11 @@ const Automation = () => {
         );
 
         setUiPreviewEnabled(true);
+        setTimeout(() => {
+    if (mainGridRef.current?.api) {
+        updateColumnVisibility(mainGridRef.current.api);
+    }
+}, 0);
     };
 
     const handleExcelUpload = (e) => {
@@ -200,16 +214,16 @@ const Automation = () => {
         const reader = new FileReader();
 
         reader.onload = (evt) => {
-    const binaryStr = evt.target.result;
-    const workbook = XLSX.read(binaryStr, { type: "binary" });
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const data = XLSX.utils.sheet_to_json(sheet);
+            const binaryStr = evt.target.result;
+            const workbook = XLSX.read(binaryStr, { type: "binary" });
+            const sheet = workbook.Sheets[workbook.SheetNames[0]];
+            const data = XLSX.utils.sheet_to_json(sheet);
 
-    validateAndLoadData(data);
+            validateAndLoadData(data);
 
-    // ✅ RESET INPUT VALUE
-    e.target.value = "";
-};
+            // ✅ RESET INPUT VALUE
+            e.target.value = "";
+        };
 
         reader.readAsBinaryString(file);
     };
@@ -244,10 +258,15 @@ const Automation = () => {
                 errors.push(`Row ${rowNum}: fieldName must start with letter/underscore and contain no spaces`);
             }
 
-            // size validation (only for VARCHAR, NVARCHAR, DECIMAL)
+            // size validation
             if (row.size !== null && row.size !== undefined && row.size !== "") {
-                if (!/^\d+(,\d+)?$/.test(row.size)) {
-                    errors.push(`Row ${rowNum}: size must be number or number,number (e.g. 50 or 10,2)`);
+
+                const sizeValue = row.size.toString().trim();
+
+                if (!/^[a-zA-Z0-9_,()]+$/.test(sizeValue)) {
+                    errors.push(
+                        `Row ${rowNum}: size contains invalid characters`
+                    );
                 }
             }
 
@@ -261,19 +280,19 @@ const Automation = () => {
             // designAddOrderNo validation (RCL format)
             const addOrderValue = row.RCL || row.designAddOrderNo;
 
-if (addOrderValue) {
-    const regex = /^\d+,\d+(?:,\d+)?$/;
+            if (addOrderValue) {
+                const regex = /^\d+,\d+(?:,\d+)?$/;
 
-    if (!regex.test(addOrderValue)) {
-        errors.push(`Row ${rowNum}: designAddOrderNo must be row,column or row,column,length`);
-    } else {
-        const parts = addOrderValue.split(",").map(Number);
+                if (!regex.test(addOrderValue)) {
+                    errors.push(`Row ${rowNum}: designAddOrderNo must be row,column or row,column,length`);
+                } else {
+                    const parts = addOrderValue.split(",").map(Number);
 
-        if (parts.length === 3 && parts[2] > 12) {
-            errors.push(`Row ${rowNum}: length (3rd value) cannot be greater than 12`);
-        }
-    }
-}
+                    if (parts.length === 3 && parts[2] > 12) {
+                        errors.push(`Row ${rowNum}: length (3rd value) cannot be greater than 12`);
+                    }
+                }
+            }
 
             // designSCSelect validation
             const validSCSelect = ["TEXT", "DROPDOWN", "DATE", "TOGGLE", "NUMBER"];
@@ -377,6 +396,12 @@ if (addOrderValue) {
 
                 dataType,
 
+                size:
+                    row.size !== undefined &&
+                        row.size !== null
+                        ? row.size.toString().trim()
+                        : "",
+
                 constraints: constraintsArray.map(c => normalizeValue(c)),
 
                 designSCSelect: row.designSCSelect
@@ -409,6 +434,8 @@ if (addOrderValue) {
 
                 defaultValue: row.defaultValue?.trim(),
                 checkCondition: row.checkCondition?.trim(),
+
+                fileType: row.fileType || '',
             };
         });
 
@@ -458,76 +485,87 @@ if (addOrderValue) {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(screens));
     }, [screens]);
 
+    useEffect(() => {
+
+    if (mainGridRef.current?.api) {
+
+        setTimeout(() => {
+            updateColumnVisibility(mainGridRef.current.api);
+        }, 0);
+    }
+
+}, [rowData]);
+
     const handleSaveScreen = () => {
 
-    const gridRows = [];
+        const gridRows = [];
 
-    // ✅ FIXED HERE
-    if (mainGridRef.current && mainGridRef.current.api) {
-        mainGridRef.current.api.forEachNode(node => {
-            if (node?.data) {
-                gridRows.push(node.data);
-            }
-        });
-    }
+        // ✅ FIXED HERE
+        if (mainGridRef.current && mainGridRef.current.api) {
+            mainGridRef.current.api.forEachNode(node => {
+                if (node?.data) {
+                    gridRows.push(node.data);
+                }
+            });
+        }
 
-    const reactName =
-        objectRowData.find(r => r.object === "React")?.name || "";
+        const reactName =
+            objectRowData.find(r => r.object === "React")?.name || "";
 
-    if (!reactName) {
-        alert("React Name is required");
-        return;
-    }
+        if (!reactName) {
+            alert("React Name is required");
+            return;
+        }
 
-    const screenData = {
-        screenName: reactName,
-        objectRowData,
-        rowData: gridRows,
-        detailsRowData,
-        screenType,
-        enableAudit
-    };
+        const screenData = {
+            screenName: reactName,
+            objectRowData,
+            rowData: gridRows,
+            detailsRowData,
+            screenType,
+            enableAudit
+        };
 
-    // Existing saved screens
-    const existing =
-        JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+        // Existing saved screens
+        const existing =
+            JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
 
-    // Replace existing screen if same name
-    const filtered =
-        existing.filter(
-            s => s.screenName !== reactName
+        // Replace existing screen if same name
+        const filtered =
+            existing.filter(
+                s => s.screenName !== reactName
+            );
+
+        filtered.push(screenData);
+
+        localStorage.setItem(
+            STORAGE_KEY,
+            JSON.stringify(filtered)
         );
 
-    filtered.push(screenData);
+        // ✅ UPDATE STATE IMMEDIATELY
+        setScreens(filtered);
 
-    localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify(filtered)
-    );
+        // KEEP ONLY DB NAME
+        // KEEP ONLY DB ROW
+        const dbRow =
+            objectRowData.find(r => r.object === "DB");
 
-    // ✅ UPDATE STATE IMMEDIATELY
-    setScreens(filtered);
+        setObjectRowData(
+            dbRow?.name
+                ? [{
+                    object: "DB",
+                    name: dbRow.name
+                }]
+                : []
+        );
 
-    // KEEP ONLY DB NAME
-    // KEEP ONLY DB ROW
-const dbRow =
-    objectRowData.find(r => r.object === "DB");
+        // Clear grids
+        setRowData([]);
+        setDetailsRowData([]);
 
-setObjectRowData(
-    dbRow?.name
-        ? [{
-            object: "DB",
-            name: dbRow.name
-        }]
-        : []
-);
-
-// Clear grids
-setRowData([]);
-setDetailsRowData([]);
-
-alert("Screen Saved Successfully");
-};
+        alert("Screen Saved Successfully");
+    };
 
     const handleClearScreens = () => {
         localStorage.removeItem(STORAGE_KEY);
@@ -612,29 +650,30 @@ alert("Screen Saved Successfully");
     const handleAdd = (rowIndex) => {
         const newRow = {
             fieldName: '',
-    dataType: 'VARCHAR',
-    size: null,
-    notNull: false,
-    primaryKey: false,
-    isForeignKey: false,
-    referenceTable: '',
-    referenceColumn: '',
-    tableFieldSelect: false,
-    nodeSelect: false,
+            dataType: 'VARCHAR',
+            size: null,
+            fileType: '',
+            notNull: false,
+            primaryKey: false,
+            isForeignKey: false,
+            referenceTable: '',
+            referenceColumn: '',
+            tableFieldSelect: false,
+            nodeSelect: false,
 
-    designSCSelect: '',
-    designSCOrderNo: null,
-    designSCButtons: '',
+            designSCSelect: '',
+            designSCOrderNo: null,
+            designSCButtons: '',
 
-    designAddScreenSelect: '',
-    designAddOrderNo: '',
-    addScreenTooltip: '',
-    designAddScreenButtons: '',
-    addScreenButtonPosition: '',
+            designAddScreenSelect: '',
+            designAddOrderNo: '',
+            addScreenTooltip: '',
+            designAddScreenButtons: '',
+            addScreenButtonPosition: '',
 
-    constraints: [],
-    defaultValue: '',
-    checkCondition: '',
+            constraints: [],
+            defaultValue: '',
+            checkCondition: '',
         };
 
         const updatedRows = [...rowData];
@@ -655,19 +694,66 @@ alert("Screen Saved Successfully");
     ];
 
     const updateColumnVisibility = (api) => {
-        if (!api) return;
 
-        const updatedData = [];
-        api.forEachNodeAfterFilterAndSort(node => updatedData.push(node.data));
+    if (!api) return;
 
-        const showFK = updatedData.some(row => row.constraints?.includes("FK"));
-        const showDF = updatedData.some(row => row.constraints?.includes("DF"));
-        const showCHK = updatedData.some(row => row.constraints?.includes("CHK"));
+    const allRows = [];
 
-        api.setColumnsVisible(["referenceTable", "referenceColumn"], showFK);
-        api.setColumnsVisible(["defaultValue"], showDF);
-        api.setColumnsVisible(["checkCondition"], showCHK);
-    };
+    api.forEachNode((node) => {
+        if (node?.data) {
+            allRows.push(node.data);
+        }
+    });
+
+    // FK columns
+    const showFK = allRows.some(row =>
+        (row.constraints && row.constraints.includes("FK")) ||
+        row.referenceTable ||
+        row.referenceColumn
+    );
+
+    // DEFAULT column
+    const showDF = allRows.some(row =>
+        (row.constraints && row.constraints.includes("DF")) ||
+        row.defaultValue
+    );
+
+    // CHECK column
+    const showCHK = allRows.some(row =>
+        (row.constraints && row.constraints.includes("CHK")) ||
+        row.checkCondition
+    );
+
+    // FILE TYPE column
+    const showFileType = allRows.some(row =>
+        (row.dataType &&
+            row.dataType.toUpperCase() === "VARBINARY") ||
+        row.fileType
+    );
+
+    // ONLY control conditional columns
+    api.setColumnsVisible(
+        ["referenceTable", "referenceColumn"],
+        showFK
+    );
+
+    api.setColumnsVisible(
+        ["defaultValue"],
+        showDF
+    );
+
+    api.setColumnsVisible(
+        ["checkCondition"],
+        showCHK
+    );
+
+    api.setColumnsVisible(
+        ["fileType"],
+        showFileType
+    );
+
+    // DO NOT touch other columns
+};
 
     const ConstraintRenderer = (props) => {
         const value = props.value || [];
@@ -698,6 +784,9 @@ alert("Screen Saved Successfully");
                     }
 
                     props.node.setDataValue("constraints", values);
+                    setTimeout(() => {
+                        updateColumnVisibility(props.api);
+                    }, 0);
 
                     if (!values.includes("FK")) {
                         props.node.setDataValue("referenceTable", "");
@@ -784,16 +873,59 @@ alert("Screen Saved Successfully");
             editable: true,
             cellEditor: 'agSelectCellEditor',
             cellEditorParams: {
-                values: ['INT', 'BIGINT', 'VARCHAR', 'TEXT', 'FLOAT', 'DATE', 'DATETIME', 'BIT', 'NVARCHAR', 'VARBINARY', 'DECIMAL', 'GRID'],
+                values: [
+                    'INT',
+                    'BIGINT',
+                    'VARCHAR',
+                    'TEXT',
+                    'FLOAT',
+                    'DATE',
+                    'DATETIME',
+                    'BIT',
+                    'NVARCHAR',
+                    'VARBINARY',
+                    'DECIMAL',
+                    'GRID'
+                ],
             },
+
+            onCellValueChanged: (params) => {
+
+                setTimeout(() => {
+                    updateColumnVisibility(params.api);
+                }, 0);
+            },
+
             minWidth: 100,
         },
         {
             field: 'size',
             headerName: 'Size',
             editable: true,
-            // maxWidth: 80,
             minWidth: 80,
+
+            valueSetter: (params) => {
+
+                // Allow both numbers and text
+                params.data.size =
+                    params.newValue !== undefined &&
+                        params.newValue !== null
+                        ? params.newValue.toString()
+                        : "";
+
+                return true;
+            }
+        },
+        {
+            field: 'fileType',
+            headerName: 'File Type',
+            editable: true,
+            hide: true,
+            minWidth: 140,
+            cellEditor: 'agSelectCellEditor',
+            cellEditorParams: {
+                values: ['Image', 'File', 'Audio', 'Video']
+            }
         },
         {
             field: 'constraints',
@@ -926,6 +1058,7 @@ alert("Screen Saved Successfully");
                 fieldName: '',
                 dataType: 'VARCHAR',
                 size: null,
+                fileType: '',
                 notNull: false,
                 primaryKey: false,
                 isForeignKey: false,
@@ -948,27 +1081,28 @@ alert("Screen Saved Successfully");
         setDetailsRowData(prev => [
             ...prev,
             {
-    fieldName: '',
-    dataType: 'VARCHAR',
-    size: '',
-    referenceTable: '',
-    referenceColumn: '',
+                fieldName: '',
+                dataType: 'VARCHAR',
+                size: '',
+                fileType: '',
+                referenceTable: '',
+                referenceColumn: '',
 
-    constraints: [],
+                constraints: [],
 
-    defaultValue: '',
-    checkCondition: '',
+                defaultValue: '',
+                checkCondition: '',
 
-    designSCSelect: '',
-    designSCOrderNo: '',
+                designSCSelect: '',
+                designSCOrderNo: '',
 
-    designAddScreenSelect: '',
-    designAddOrderNo: '',
+                designAddScreenSelect: '',
+                designAddOrderNo: '',
 
-    addScreenTooltip: '',
-    designAddScreenButtons: '',
-    addScreenButtonPosition: ''
-},
+                addScreenTooltip: '',
+                designAddScreenButtons: '',
+                addScreenButtonPosition: ''
+            },
         ]);
     };
 
@@ -988,139 +1122,175 @@ alert("Screen Saved Successfully");
 
     const previewTableSQL = () => {
 
-    // =========================
-    // MULTI SCREEN MODE
-    // =========================
+        // =========================
+        // MULTI SCREEN MODE
+        // =========================
 
-    if (screens.length > 0) {
+        if (screens.length > 0) {
 
-        const script =
-            getPreviewTableSQL(enableAudit);
+            const script =
+                getPreviewTableSQL(enableAudit);
+
+            setSqlPreview(script);
+
+            return;
+        }
+
+        // =========================
+        // SINGLE SCREEN MODE
+        // =========================
+
+        // SINGLE SCREEN MODE
+
+        const rows = [];
+
+        if (mainGridRef.current?.api) {
+            mainGridRef.current.api.forEachNode(node => {
+                if (node?.data) {
+                    rows.push(node.data);
+                }
+            });
+        }
+
+        // ✅ Generate UDD first
+        const uddScript = getOnlyUDDSQL(
+            rows,
+            detailsRowData,
+            enableAudit
+        );
+
+        // ✅ Generate table
+        const tableScript = getTableSQL(
+            mainGridRef,
+            objectRowData,
+            detailsRowData,
+            detailsDefs,
+            enableAudit
+        );
+
+        // ✅ Combine both
+        const script = `
+
+-- =============================================
+-- UDD
+-- =============================================
+
+${uddScript}
+
+-- =============================================
+-- TABLE
+-- =============================================
+
+${tableScript}
+`;
 
         setSqlPreview(script);
-
-        return;
-    }
-
-    // =========================
-    // SINGLE SCREEN MODE
-    // =========================
-
-    const script = getTableSQL(
-        mainGridRef,
-        objectRowData,
-        detailsRowData,
-        detailsDefs,
-        enableAudit
-    );
-
-    setSqlPreview(script);
-};
+    };
 
     const previewSPCode = () => {
 
-    // =========================
-    // MULTI SCREEN MODE
-    // =========================
+        // =========================
+        // MULTI SCREEN MODE
+        // =========================
 
-    if (screens.length > 0) {
+        if (screens.length > 0) {
 
-        const spScript =
-            getAllStoredProcSQL(enableAudit);
+            const spScript =
+                getAllStoredProcSQL(enableAudit);
+
+            if (spScript) {
+                setSqlPreview(spScript);
+            }
+
+            return;
+        }
+
+        // =========================
+        // SINGLE SCREEN MODE
+        // =========================
+
+        const spScript = getStoredProcSQL(
+            mainGridRef,
+            objectRowData,
+            detailsRowData,
+            detailsDefs,
+            enableAudit
+        );
 
         if (spScript) {
             setSqlPreview(spScript);
         }
-
-        return;
-    }
-
-    // =========================
-    // SINGLE SCREEN MODE
-    // =========================
-
-    const spScript = getStoredProcSQL(
-        mainGridRef,
-        objectRowData,
-        detailsRowData,
-        detailsDefs,
-        enableAudit
-    );
-
-    if (spScript) {
-        setSqlPreview(spScript);
-    }
-};
+    };
 
     const previewNodeSingle = () => {
 
-    // =========================
-    // MULTI SCREEN MODE
-    // =========================
+        // =========================
+        // MULTI SCREEN MODE
+        // =========================
 
-    if (screens.length > 0) {
+        if (screens.length > 0) {
+
+            const singleNodeScript =
+                getAllNodeSingleCrudScripts();
+
+            if (singleNodeScript) {
+                setSqlPreview(singleNodeScript);
+            }
+
+            return;
+        }
+
+        // =========================
+        // SINGLE SCREEN MODE
+        // =========================
 
         const singleNodeScript =
-            getAllNodeSingleCrudScripts();
+            getNodeSingleCrudScript(
+                mainGridRef,
+                objectRowData,
+                detailsDefs,
+                detailsRowData
+            );
 
         if (singleNodeScript) {
             setSqlPreview(singleNodeScript);
         }
-
-        return;
-    }
-
-    // =========================
-    // SINGLE SCREEN MODE
-    // =========================
-
-    const singleNodeScript =
-        getNodeSingleCrudScript(
-            mainGridRef,
-            objectRowData,
-            detailsDefs,
-            detailsRowData
-        );
-
-    if (singleNodeScript) {
-        setSqlPreview(singleNodeScript);
-    }
-};
+    };
 
     const previewNodeLoop = () => {
 
-    // =========================
-    // MULTI SCREEN MODE
-    // =========================
+        // =========================
+        // MULTI SCREEN MODE
+        // =========================
 
-    if (screens.length > 0) {
+        if (screens.length > 0) {
+
+            const loopNodeScript =
+                getAllNodeLoopCrudScripts();
+
+            if (loopNodeScript) {
+                setSqlPreview(loopNodeScript);
+            }
+
+            return;
+        }
+
+        // =========================
+        // SINGLE SCREEN MODE
+        // =========================
 
         const loopNodeScript =
-            getAllNodeLoopCrudScripts();
+            getNodeLoopCrudScripts(
+                mainGridRef,
+                objectRowData,
+                detailsDefs,
+                detailsRowData
+            );
 
         if (loopNodeScript) {
             setSqlPreview(loopNodeScript);
         }
-
-        return;
-    }
-
-    // =========================
-    // SINGLE SCREEN MODE
-    // =========================
-
-    const loopNodeScript =
-        getNodeLoopCrudScripts(
-            mainGridRef,
-            objectRowData,
-            detailsDefs,
-            detailsRowData
-        );
-
-    if (loopNodeScript) {
-        setSqlPreview(loopNodeScript);
-    }
-};
+    };
 
     const generateFiles = () => {
         const zip = new JSZip();
@@ -1136,20 +1306,59 @@ alert("Screen Saved Successfully");
         //SQL Folder
         const sqlFolder = zip.folder("sql");
 
-        const tableSQL = getTableSQL(
-            mainGridRef,
-            objectRowData,
-            detailsRowData,
-            detailsDefs,
-            enableAudit   // ✅ NEW
-        );
-        if (tableSQL) {
+let finalTableSQL = "";
+
+// =============================================
+// MULTI SCREEN MODE
+// =============================================
+
+if (screens.length > 0) {
+
+    finalTableSQL = getPreviewTableSQL(enableAudit);
+
+} else {
+
+    // =============================================
+    // SINGLE SCREEN MODE
+    // =============================================
+
+    const uddSQL = getOnlyUDDSQL(
+        rowData,
+        detailsRowData,
+        enableAudit
+    );
+
+    const tableSQL = getTableSQL(
+        mainGridRef,
+        objectRowData,
+        detailsRowData,
+        detailsDefs,
+        enableAudit
+    );
+
+    finalTableSQL = `
+
+-- =============================================
+-- UDD
+-- =============================================
+
+${uddSQL}
+
+-- =============================================
+-- TABLE
+-- =============================================
+
+${tableSQL}
+`;
+}
+        if (finalTableSQL) {
             // Extract DB name from USE statement
-            const dbMatch = tableSQL.match(/USE\s+\[(.*?)\];/i);
+            const dbMatch = finalTableSQL.match(/USE\s+\[(.*?)\];/i);
             const dbName = dbMatch ? dbMatch[1] : "unknownDB";
 
             // Split by Details marker
-            const [headerPart, ...detailsParts] = tableSQL.split(/-- Create Details Table/i);
+            const [headerPart, ...detailsParts] =
+    finalTableSQL.split(/-- Create Details Table/i);
 
             //Save Header table SQL (no duplicate USE)
             if (headerPart.trim()) {
@@ -1169,62 +1378,235 @@ alert("Screen Saved Successfully");
             });
         }
 
-        const spSQL = getStoredProcSQL(
+        let spSQL = "";
+
+// =============================================
+// MULTI SCREEN MODE
+// =============================================
+
+if (screens.length > 0) {
+
+    spSQL = getAllStoredProcSQL(enableAudit);
+
+} else {
+
+    // =============================================
+    // SINGLE SCREEN MODE
+    // =============================================
+
+    spSQL = getStoredProcSQL(
+        mainGridRef,
+        objectRowData,
+        detailsRowData,
+        detailsDefs,
+        enableAudit
+    );
+}
+
+if (spSQL) {
+
+    sqlFolder.file(
+        `sp_${spName || "all"}.sql`,
+        spSQL
+    );
+
+    hasFiles = true;
+}
+
+        // ✅ Node Folder
+const nodeFolder = zip.folder("node");
+
+let nodeSingle = "";
+let nodeLoop = "";
+
+// =============================================
+// MULTI SCREEN MODE
+// =============================================
+
+if (screens.length > 0) {
+
+    nodeSingle = getAllNodeSingleCrudScripts();
+
+    nodeLoop = getAllNodeLoopCrudScripts();
+
+} else {
+
+    // =============================================
+    // SINGLE SCREEN MODE
+    // =============================================
+
+    nodeSingle = getNodeSingleCrudScript(
+        mainGridRef,
+        objectRowData,
+        detailsDefs,
+        detailsRowData
+    );
+
+    nodeLoop = getNodeLoopCrudScripts(
+        mainGridRef,
+        objectRowData,
+        detailsDefs,
+        detailsRowData
+    );
+}
+
+// =============================================
+// SAVE FILES
+// =============================================
+
+if (nodeSingle) {
+
+    nodeFolder.file(
+        `${reactName || "all"}_single.js`,
+        nodeSingle
+    );
+
+    hasFiles = true;
+}
+
+if (nodeLoop) {
+
+    nodeFolder.file(
+        `${reactName || "all"}_loop.js`,
+        nodeLoop
+    );
+
+    hasFiles = true;
+}
+
+// ✅ React Folder
+const reactFolder = zip.folder("react");
+
+let searchDesign = "";
+let addDesign = "";
+let addGridDesign = "";
+let combinedDesign = "";
+
+// =============================================
+// MULTI SCREEN MODE
+// =============================================
+
+if (screens.length > 0) {
+
+    // ALL SEARCH + ADD + COMBINED SCREENS
+    combinedDesign = getAllFrontendScreens();
+
+    // OPTIONAL:
+    // If you already created a separate generator
+    // called getAllFrontendCode()
+
+    searchDesign = getAllFrontendCode();
+
+} else {
+
+    // =============================================
+    // SINGLE SCREEN MODE
+    // =============================================
+
+    searchDesign =
+        getFrontendSearchDesignCode(
+            mainGridRef,
+            objectRowData
+        );
+
+    addDesign =
+        getFrontendAddDesignCode(
+            mainGridRef,
+            objectRowData,
+            detailsRowData
+        );
+
+    // ADD + GRID
+    addGridDesign =
+        getFrontendAddDesignCode(
+            mainGridRef,
+            objectRowData,
+            detailsRowData
+        );
+
+    // SEARCH + ADD + GRID
+    combinedDesign =
+        getFrontendCombinedDesignCode(
             mainGridRef,
             objectRowData,
             detailsRowData,
-            detailsDefs,
-            enableAudit   // ✅ NEW
+            screens
         );
-        if (spSQL) {
-            sqlFolder.file(`sp_${spName}.sql`, spSQL);
-            hasFiles = true;
-        }
+}
+// =============================================
+// MULTI SCREEN SAVE
+// =============================================
 
-        // ✅ Node Folder
-        const nodeFolder = zip.folder("node");
+if (screens.length > 0) {
 
-        const nodeSingle = getNodeSingleCrudScript(
-    mainGridRef,
-    objectRowData,
-    detailsDefs,
-    detailsRowData
-);
-        if (nodeSingle) {
-            nodeFolder.file(`${reactName}_single.js`, nodeSingle);
-            hasFiles = true;
-        }
+    if (combinedDesign) {
 
-        const nodeLoop = getNodeLoopCrudScripts(
-    mainGridRef,
-    objectRowData,
-    detailsDefs,
-    detailsRowData
-);;
-        if (nodeLoop) {
-            nodeFolder.file(`${reactName}_loop.js`, nodeLoop);
-            hasFiles = true;
-        }
+        reactFolder.file(
+            `all_screens.js`,
+            combinedDesign
+        );
 
-        // ✅ React Folder
-        const reactFolder = zip.folder("react");
+        hasFiles = true;
+    }
 
-        const searchDesign = getFrontendSearchDesignCode(mainGridRef, objectRowData);
-        const addDesign = getFrontendAddDesignCode(
-    mainGridRef,
-    objectRowData,
-    detailsRowData
-);
+    if (searchDesign) {
 
-        if (searchDesign) {
-            reactFolder.file(`${reactName}_search.js`, searchDesign);
-            hasFiles = true;
-        }
+        reactFolder.file(
+            `all_frontend_code.js`,
+            searchDesign
+        );
 
-        if (addDesign) {
-            reactFolder.file(`${reactName}_add.js`, addDesign);
-            hasFiles = true;
-        }
+        hasFiles = true;
+    }
+
+} else {
+
+    // =============================================
+    // SINGLE SCREEN SAVE
+    // =============================================
+
+    if (searchDesign) {
+
+        reactFolder.file(
+            `${reactName}_search.js`,
+            searchDesign
+        );
+
+        hasFiles = true;
+    }
+
+    if (addDesign) {
+
+        reactFolder.file(
+            `${reactName}_add.js`,
+            addDesign
+        );
+
+        hasFiles = true;
+    }
+
+    // ADD + GRID
+    if (addGridDesign) {
+
+        reactFolder.file(
+            `${reactName}_add_grid.js`,
+            addGridDesign
+        );
+
+        hasFiles = true;
+    }
+
+    // COMBINED
+    if (combinedDesign) {
+
+        reactFolder.file(
+            `${reactName}_combined.js`,
+            combinedDesign
+        );
+
+        hasFiles = true;
+    }
+}
 
         // ✅ Final ZIP Download
         if (hasFiles) {
@@ -1238,60 +1620,60 @@ alert("Screen Saved Successfully");
 
     const renderReactCodeFromString = (codeString) => {
 
-    try {
+        try {
 
-        // Remove imports + exports only
-        let cleanedCode = codeString
-            .replace(/^import .*;$/gm, '')
-            .replace(/^export default .*;$/gm, '')
-            .trim();
+            // Remove imports + exports only
+            let cleanedCode = codeString
+                .replace(/^import .*;$/gm, '')
+                .replace(/^export default .*;$/gm, '')
+                .trim();
 
-        // Find component name safely
-        const componentMatch =
-            cleanedCode.match(/const\s+(\w+Screen)\s*=\s*\(\)\s*=>/);
+            // Find component name safely
+            const componentMatch =
+                cleanedCode.match(/const\s+(\w+Screen)\s*=\s*\(\)\s*=>/);
 
-        if (!componentMatch) {
+            if (!componentMatch) {
 
-            return (
-                <div className="text-danger">
-                    ❌ Component function not found
-                </div>
-            );
-        }
+                return (
+                    <div className="text-danger">
+                        ❌ Component function not found
+                    </div>
+                );
+            }
 
-        const componentName = componentMatch[1];
+            const componentName = componentMatch[1];
 
-        // Compile JSX
-        const compiledCode = Babel.transform(cleanedCode, {
-            presets: ['react']
-        }).code;
+            // Compile JSX
+            const compiledCode = Babel.transform(cleanedCode, {
+                presets: ['react']
+            }).code;
 
-        // Create executable component
-        const Component = new Function(
-            'React',
-            'Select',
-            'AgGridReact',
-            `
+            // Create executable component
+            const Component = new Function(
+                'React',
+                'Select',
+                'AgGridReact',
+                `
             ${compiledCode}
             return ${componentName};
             `
-        )(
-            React,
-            Select,
-            AgGridReact
-        );
+            )(
+                React,
+                Select,
+                AgGridReact
+            );
 
-        return <Component />;
+            return <Component />;
 
-    } catch (err) {
+        } catch (err) {
 
-        return (
-            <div className="text-danger">
-                ❌ Error in preview: {err.message}
-            </div>
-        );
-    }
-};
+            return (
+                <div className="text-danger">
+                    ❌ Error in preview: {err.message}
+                </div>
+            );
+        }
+    };
 
     const handleGenerateBothDesigns = () => {
         let searchCode = "";
@@ -1375,29 +1757,30 @@ alert("Screen Saved Successfully");
     const handleDetailsAdd = (rowIndex) => {
         const newRow = {
             fieldName: '',
-    dataType: 'VARCHAR',
-    size: null,
-    notNull: false,
-    primaryKey: false,
-    isForeignKey: false,
-    referenceTable: '',
-    referenceColumn: '',
-    tableFieldSelect: false,
-    nodeSelect: false,
+            dataType: 'VARCHAR',
+            size: null,
+            fileType: '',
+            notNull: false,
+            primaryKey: false,
+            isForeignKey: false,
+            referenceTable: '',
+            referenceColumn: '',
+            tableFieldSelect: false,
+            nodeSelect: false,
 
-    designSCSelect: '',
-    designSCOrderNo: null,
-    designSCButtons: '',
+            designSCSelect: '',
+            designSCOrderNo: null,
+            designSCButtons: '',
 
-    designAddScreenSelect: '',
-    designAddOrderNo: '',
-    addScreenTooltip: '',
-    designAddScreenButtons: '',
-    addScreenButtonPosition: '',
+            designAddScreenSelect: '',
+            designAddOrderNo: '',
+            addScreenTooltip: '',
+            designAddScreenButtons: '',
+            addScreenButtonPosition: '',
 
-    constraints: [],
-    defaultValue: '',
-    checkCondition: '',
+            constraints: [],
+            defaultValue: '',
+            checkCondition: '',
         };
 
         const updatedRows = [...detailsRowData];
@@ -1454,35 +1837,62 @@ alert("Screen Saved Successfully");
                     values: ['INT', 'VARCHAR', 'TEXT', 'FLOAT', 'DATE', 'DATETIME', 'BIT', 'NVARCHAR', 'VARBINARY', 'DECIMAL', 'GRID'],
                 },
                 onCellValueChanged: (params) => {
+
                     if (params.newValue === "BIT") {
                         params.node.setDataValue('designAddScreenSelect', 'Toggle');
                     }
+
+                    setTimeout(() => {
+                        updateColumnVisibility(params.api);
+                    }, 0);
                 }
             },
             {
                 field: 'size',
                 headerName: 'Size',
-                editable: true
+                editable: true,
+
+                valueSetter: (params) => {
+
+                    params.data.size =
+                        params.newValue !== undefined &&
+                            params.newValue !== null
+                            ? params.newValue.toString()
+                            : "";
+
+                    return true;
+                }
             },
-{
-    field: 'constraints',
-    headerName: 'Constraints',
-    cellRenderer: ConstraintRenderer,
-    editable: false,
-    minWidth: 220
-},
-{
-    field: 'defaultValue',
-    headerName: 'Default Value',
-    editable: true,
-    hide: true,
-},
-{
-    field: 'checkCondition',
-    headerName: 'Check Condition',
-    editable: true,
-    hide: true,
-},
+            {
+                field: 'fileType',
+                headerName: 'File Type',
+                editable: true,
+                hide: true,
+                minWidth: 140,
+                cellEditor: 'agSelectCellEditor',
+                cellEditorParams: {
+                    values: ['Image', 'File', 'Audio', 'Video']
+                }
+            },
+            {
+                field: 'constraints',
+                headerName: 'Constraints',
+                cellRenderer: ConstraintRenderer,
+                editable: false,
+                minWidth: 220
+            },
+            {
+                field: 'defaultValue',
+                headerName: 'Default Value',
+                editable: true,
+                hide: true,
+            },
+            {
+                field: 'checkCondition',
+                headerName: 'Check Condition',
+                editable: true,
+                hide: true,
+            },
             {
                 field: 'referenceTable',
                 headerName: 'Ref Table',
@@ -1529,123 +1939,123 @@ alert("Screen Saved Successfully");
 
             <Row className="g-3 align-items-end mb-4">
 
-    {/* Object Type */}
-    <Col md={3}>
-        <Form.Label className="fw-semibold">Object Type</Form.Label>
+                {/* Object Type */}
+                <Col md={3}>
+                    <Form.Label className="fw-semibold">Object Type</Form.Label>
 
-        <Form.Select
-            value={objectType}
-            onChange={e => setObjectType(e.target.value)}
-        >
-            <option value="DB">DB Name</option>
-            <option value="Table">Table Name</option>
-            <option value="StoredProcedure">SP Name</option>
-            <option value="React">React Name</option>
-        </Form.Select>
-    </Col>
+                    <Form.Select
+                        value={objectType}
+                        onChange={e => setObjectType(e.target.value)}
+                    >
+                        <option value="DB">DB Name</option>
+                        <option value="Table">Table Name</option>
+                        <option value="StoredProcedure">SP Name</option>
+                        <option value="React">React Name</option>
+                    </Form.Select>
+                </Col>
 
-    {/* Object Name */}
-    <Col md={4}>
-        <Form.Label className="fw-semibold">Object Name</Form.Label>
+                {/* Object Name */}
+                <Col md={4}>
+                    <Form.Label className="fw-semibold">Object Name</Form.Label>
 
-        <Form.Control
-            value={name}
-            onChange={e => setName(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Enter object name"
-        />
-    </Col>
+                    <Form.Control
+                        value={name}
+                        onChange={e => setName(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        placeholder="Enter object name"
+                    />
+                </Col>
 
-    {/* Details Button */}
-    <Col md={1} className="d-grid">
-        <Button
-            variant="secondary"
-            onClick={handleDetailsClick}
-        >
-            Details
-        </Button>
-    </Col>
+                {/* Details Button */}
+                <Col md={1} className="d-grid">
+                    <Button
+                        variant="secondary"
+                        onClick={handleDetailsClick}
+                    >
+                        Details
+                    </Button>
+                </Col>
 
-    {/* Screen Type */}
-    <Col md={4}>
-        <Form.Label className="fw-semibold">Screen Type</Form.Label>
+                {/* Screen Type */}
+                <Col md={4}>
+                    <Form.Label className="fw-semibold">Screen Type</Form.Label>
 
-        <Form.Select
-            value={screenType}
-            onChange={(e) => setScreenType(e.target.value)}
-        >
-            <option value="search">Search Screen</option>
-            <option value="add">Add Screen</option>
-            <option value="add-grid">Add + Grid Screen</option>
-            <option value="combined">Add + Search + Grid Screen</option>
-        </Form.Select>
-    </Col>
+                    <Form.Select
+                        value={screenType}
+                        onChange={(e) => setScreenType(e.target.value)}
+                    >
+                        <option value="search">Search Screen</option>
+                        <option value="add">Add Screen</option>
+                        <option value="add-grid">Add + Grid Screen</option>
+                        <option value="combined">Add + Search + Grid Screen</option>
+                    </Form.Select>
+                </Col>
 
-    {/* Save / Clear Buttons */}
-    <Col md={4}>
-        <div className="d-grid gap-2">
-            <Button
-                variant="success"
-                onClick={handleSaveScreen}
-            >
-                💾 Save Screen
-            </Button>
+                {/* Save / Clear Buttons */}
+                <Col md={4}>
+                    <div className="d-grid gap-2">
+                        <Button
+                            variant="success"
+                            onClick={handleSaveScreen}
+                        >
+                            💾 Save Screen
+                        </Button>
 
-            <Button
-                variant="danger"
-                onClick={handleClearScreens}
-            >
-                🗑️ Clear Screens
-            </Button>
-        </div>
-    </Col>
+                        <Button
+                            variant="danger"
+                            onClick={handleClearScreens}
+                        >
+                            🗑️ Clear Screens
+                        </Button>
+                    </div>
+                </Col>
 
-    {/* Audit + Excel Actions */}
-    <Col md={8}>
-        <div className="d-flex flex-wrap gap-2 align-items-center h-100">
+                {/* Audit + Excel Actions */}
+                <Col md={8}>
+                    <div className="d-flex flex-wrap gap-2 align-items-center h-100">
 
-            <Form.Check
-                type="checkbox"
-                label="Enable Audit Columns"
-                checked={enableAudit}
-                onChange={(e) => setEnableAudit(e.target.checked)}
-            />
+                        <Form.Check
+                            type="checkbox"
+                            label="Enable Audit Columns"
+                            checked={enableAudit}
+                            onChange={(e) => setEnableAudit(e.target.checked)}
+                        />
 
-            <Button
-                variant="outline-secondary"
-                onClick={downloadExcelTemplate}
-            >
-                ⬇ Download Template
-            </Button>
+                        <Button
+                            variant="outline-secondary"
+                            onClick={downloadExcelTemplate}
+                        >
+                            ⬇ Download Template
+                        </Button>
 
-            <input
-                type="file"
-                accept=".xlsx"
-                ref={fileInputRef}
-                onChange={handleExcelUpload}
-                style={{ display: "none" }}
-            />
+                        <input
+                            type="file"
+                            accept=".xlsx"
+                            ref={fileInputRef}
+                            onChange={handleExcelUpload}
+                            style={{ display: "none" }}
+                        />
 
-            <Button
-                variant="outline-primary"
-                onClick={() => fileInputRef.current.click()}
-            >
-                📤 Upload Excel
-            </Button>
-        </div>
-    </Col>
+                        <Button
+                            variant="outline-primary"
+                            onClick={() => fileInputRef.current.click()}
+                        >
+                            📤 Upload Excel
+                        </Button>
+                    </div>
+                </Col>
 
-</Row>
+            </Row>
 
             <div className="card shadow-sm p-3 mb-4">
                 <div
-    className="ag-theme-alpine mb-4"
-    style={{
-        height: 200,
-        width: "100%",
-        maxWidth: "600px"
-    }}
->
+                    className="ag-theme-alpine mb-4"
+                    style={{
+                        height: 200,
+                        width: "100%",
+                        maxWidth: "600px"
+                    }}
+                >
                     <AgGridReact
                         ref={objectGridRef}
                         rowData={objectRowData}
@@ -1658,29 +2068,29 @@ alert("Screen Saved Successfully");
 
             <div className="d-flex justify-content-between align-items-center mb-2">
 
-    <h5 className="mb-0 fw-semibold">
-        Main Configuration
-    </h5>
+                <h5 className="mb-0 fw-semibold">
+                    Main Configuration
+                </h5>
 
-    <div className="d-flex gap-2">
-        <Button
-            variant="primary"
-            className="rounded-top"
-            onClick={handleAddRow}
-        >
-            <FaPlus />
-        </Button>
+                <div className="d-flex gap-2">
+                    <Button
+                        variant="primary"
+                        className="rounded-top"
+                        onClick={handleAddRow}
+                    >
+                        <FaPlus />
+                    </Button>
 
-        <Button
-            variant="danger"
-            className="rounded-top"
-            onClick={handleRemoveRow}
-        >
-            <FaMinus />
-        </Button>
-    </div>
+                    <Button
+                        variant="danger"
+                        className="rounded-top"
+                        onClick={handleRemoveRow}
+                    >
+                        <FaMinus />
+                    </Button>
+                </div>
 
-</div>
+            </div>
 
             <div className="ag-theme-alpine mb-4" style={{ height: 350 }}>
                 <AgGridReact
@@ -1721,6 +2131,14 @@ alert("Screen Saved Successfully");
                             params.node.setDataValue("size", "");
                         }
 
+                        // Clear fileType if datatype is not VARBINARY
+                        if (
+                            params.colDef.field === "dataType" &&
+                            params.newValue?.toUpperCase() !== "VARBINARY"
+                        ) {
+                            params.node.setDataValue("fileType", "");
+                        }
+
                         updateColumnVisibility(params.api);
                     }}
                 />
@@ -1730,118 +2148,118 @@ alert("Screen Saved Successfully");
                 <div className="mb-3">
                     <div className="d-flex justify-content-between align-items-center mb-3">
 
-    <h5 className="mb-0 fw-semibold">
-        Details Grid
-    </h5>
+                        <h5 className="mb-0 fw-semibold">
+                            Details Grid
+                        </h5>
 
-    <div className="d-flex gap-2">
+                        <div className="d-flex gap-2">
 
-        <Button
-            variant="primary"
-            className="rounded-top"
-            onClick={handleDetailsAddRow}
-        >
-            <FaPlus />
-        </Button>
+                            <Button
+                                variant="primary"
+                                className="rounded-top"
+                                onClick={handleDetailsAddRow}
+                            >
+                                <FaPlus />
+                            </Button>
 
-        <Button
-            variant="danger"
-            className="rounded-top"
-            onClick={handleDetailsRemoveRow}
-        >
-            <FaMinus />
-        </Button>
+                            <Button
+                                variant="danger"
+                                className="rounded-top"
+                                onClick={handleDetailsRemoveRow}
+                            >
+                                <FaMinus />
+                            </Button>
 
-    </div>
+                        </div>
 
-</div>
+                    </div>
                     <div className="ag-theme-alpine mt-3" style={{ height: 300 }}>
                         <AgGridReact
-    rowData={detailsRowData}
-    columnDefs={detailsDefs}
-    defaultColDef={defaultColDef}
-    stopEditingWhenCellsLoseFocus={true}
-    onGridReady={(params) => {
-        updateColumnVisibility(params.api);
-    }}
-    onCellValueChanged={(params) => {
+                            rowData={detailsRowData}
+                            columnDefs={detailsDefs}
+                            defaultColDef={defaultColDef}
+                            stopEditingWhenCellsLoseFocus={true}
+                            onGridReady={(params) => {
+                                updateColumnVisibility(params.api);
+                            }}
+                            onCellValueChanged={(params) => {
 
-        if (
-            params.colDef.field === "dataType" &&
-            !["INT", "BIGINT"].includes(params.newValue?.toUpperCase()) &&
-            params.data.constraints?.includes("AI")
-        ) {
-            params.node.setDataValue(
-                "constraints",
-                params.data.constraints.filter(v => v !== "AI")
-            );
-        }
+                                if (
+                                    params.colDef.field === "dataType" &&
+                                    !["INT", "BIGINT"].includes(params.newValue?.toUpperCase()) &&
+                                    params.data.constraints?.includes("AI")
+                                ) {
+                                    params.node.setDataValue(
+                                        "constraints",
+                                        params.data.constraints.filter(v => v !== "AI")
+                                    );
+                                }
 
-        const sizeAllowed = ["VARCHAR", "NVARCHAR", "DECIMAL"];
+                                const sizeAllowed = ["VARCHAR", "NVARCHAR", "DECIMAL"];
 
-        if (
-            params.colDef.field === "dataType" &&
-            !sizeAllowed.includes(params.newValue?.toUpperCase())
-        ) {
-            params.node.setDataValue("size", "");
-        }
+                                if (
+                                    params.colDef.field === "dataType" &&
+                                    !sizeAllowed.includes(params.newValue?.toUpperCase())
+                                ) {
+                                    params.node.setDataValue("size", "");
+                                }
 
-        updateColumnVisibility(params.api);
-    }}
-/>
+                                updateColumnVisibility(params.api);
+                            }}
+                        />
                     </div>
                 </div>
             )}
 
             <div className="mb-4">
 
-    <div className="d-flex flex-wrap gap-3">
+                <div className="d-flex flex-wrap gap-3">
 
-        <Button
-            variant="success"
-            onClick={generateFiles}
-        >
-            Generate Files
-        </Button>
+                    <Button
+                        variant="success"
+                        onClick={generateFiles}
+                    >
+                        Generate Files
+                    </Button>
 
-        <Button
-            variant="info"
-            onClick={previewTableSQL}
-        >
-            Preview Table SQL
-        </Button>
+                    <Button
+                        variant="info"
+                        onClick={previewTableSQL}
+                    >
+                        Preview Table SQL
+                    </Button>
 
-        <Button
-            variant="warning"
-            onClick={previewSPCode}
-        >
-            Preview SP Code
-        </Button>
+                    <Button
+                        variant="warning"
+                        onClick={previewSPCode}
+                    >
+                        Preview SP Code
+                    </Button>
 
-        <Button
-            variant="dark"
-            onClick={previewNodeSingle}
-        >
-            ⚙️ Node Insert (Single)
-        </Button>
+                    <Button
+                        variant="dark"
+                        onClick={previewNodeSingle}
+                    >
+                        ⚙️ Node Insert (Single)
+                    </Button>
 
-        <Button
-            variant="secondary"
-            onClick={previewNodeLoop}
-        >
-            🔁 Node Insert (Loop)
-        </Button>
+                    <Button
+                        variant="secondary"
+                        onClick={previewNodeLoop}
+                    >
+                        🔁 Node Insert (Loop)
+                    </Button>
 
-        <Button
-            variant="primary"
-            onClick={handleGenerateScreen}
-        >
-            🚀 Generate Screen
-        </Button>
+                    <Button
+                        variant="primary"
+                        onClick={handleGenerateScreen}
+                    >
+                        🚀 Generate Screen
+                    </Button>
 
-    </div>
+                </div>
 
-</div>
+            </div>
 
             <div className="mt-4">
                 <div className="d-flex justify-content-between align-items-center mb-2">

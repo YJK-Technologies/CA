@@ -87,7 +87,13 @@ export const getTableSQL = (gridRef, objectRowData, detailsRowData, detailsDefs,
         lines.push(`  -- [${col.fieldName}] GRID (see details table)`);
     } else {
 
-        let line = `  [${col.fieldName}] [udd_${col.fieldName}]`;
+        let line = '';
+
+if (col.dataType?.toUpperCase() === "VARBINARY") {
+    line = `  [${col.fieldName}] VARBINARY(MAX)`;
+} else {
+    line = `  [${col.fieldName}] [udd_${col.fieldName}]`;
+}
 
         // Auto Increment
         if (hasConstraint(col.constraints, ["AI", "IDENTITY"])) {
@@ -175,7 +181,13 @@ script += ');\nGO\n\n';
             const detailLines = [];
 
             detailRows.forEach(col => {
-let line = `  [${col.fieldName}] [udd_${col.fieldName}]`;
+let line = '';
+
+if (col.dataType?.toUpperCase() === "VARBINARY") {
+    line = `  [${col.fieldName}] VARBINARY(MAX)`;
+} else {
+    line = `  [${col.fieldName}] [udd_${col.fieldName}]`;
+}
 
 if (hasConstraint(col.constraints, ["AI", "IDENTITY"])) {
     line += ' IDENTITY(1,1)';
@@ -631,15 +643,17 @@ export const getAllTableSQL = (enableAudit) => {
 
     savedScreens.forEach(screen => {
 
+        const rows = screen.rowData || screen.gridData || [];
+
         const fakeGridRef = {
             current: {
                 api: {
                     forEachNode: (callback) => {
-                        const rows = screen.rowData || screen.gridData || [];
 
-rows.forEach(row => {
+                        rows.forEach(row => {
                             callback({ data: row });
                         });
+
                     }
                 }
             }
@@ -650,16 +664,37 @@ rows.forEach(row => {
 -- SCREEN : ${screen.screenName}
 -- =============================================
 
+
+-- =============================================
+-- UDD
+-- =============================================
+
+`;
+
+        finalScript += getOnlyUDDSQL(
+            rows,
+            screen.detailsRowData,
+            enableAudit
+        );
+
+        finalScript += `
+
+-- =============================================
+-- TABLE
+-- =============================================
+
 `;
 
         finalScript += getTableSQL(
-    fakeGridRef,
-    screen.objectRowData,
-    screen.detailsRowData,
-    screen.detailsDefs,
-    enableAudit
-);
+            fakeGridRef,
+            screen.objectRowData,
+            screen.detailsRowData,
+            screen.detailsDefs,
+            enableAudit
+        );
+
         finalScript += `\n\n`;
+
     });
 
     return finalScript;
