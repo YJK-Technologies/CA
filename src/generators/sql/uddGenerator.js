@@ -1,16 +1,8 @@
 export const getOnlyUDDSQL = (
-    gridRef,
-    objectRowData,
-    detailsRowData,
-    detailsDefs,
+    rows,
+    detailsDataMap,
     enableAudit
 ) => {
-
-    const rows = [];
-
-    gridRef?.current?.api?.forEachNode(node => {
-        rows.push(node.data);
-    });
 
     const validRows = rows.filter(
         row => row.fieldName && row.fieldName.trim() !== ""
@@ -22,7 +14,12 @@ export const getOnlyUDDSQL = (
 
         const field = row.fieldName;
         const type = row.dataType || "VARCHAR";
-        const length = row.length ? `(${row.length})` : "";
+
+        const length =
+            row.length &&
+            !["INT", "BIGINT", "DATE", "DATETIME", "BIT", "FLOAT", "TEXT"].includes(type.toUpperCase())
+                ? `(${row.length})`
+                : "";
 
         sql += `CREATE TYPE udd_${field} FROM ${type}${length};\nGO\n\n`;
     });
