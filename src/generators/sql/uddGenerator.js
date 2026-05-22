@@ -16,10 +16,10 @@ export const getOnlyUDDSQL = (
         const type = row.dataType || "VARCHAR";
 
         const length =
-            row.length &&
-            !["INT", "BIGINT", "DATE", "DATETIME", "BIT", "FLOAT", "TEXT"].includes(type.toUpperCase())
-                ? `(${row.length})`
-                : "";
+    row.size &&
+    !["INT", "BIGINT", "DATE", "DATETIME", "BIT", "FLOAT", "TEXT"].includes(type.toUpperCase())
+        ? `(${row.size})`
+        : "";
 
         sql += `CREATE TYPE udd_${field} FROM ${type}${length};\nGO\n\n`;
     });
