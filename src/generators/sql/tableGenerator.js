@@ -141,6 +141,7 @@ export const getTableSQL = (
     // ✅ ADD AUDIT COLUMNS BEFORE CLOSING TABLE
     if (enableAudit) {
         lines.push(`  [company_code] [udd_company_code] NOT NULL`);
+        lines.push(`  [location_code] [udd_location_code] NOT NULL`);
         lines.push(`  [created_by] [udd_created_by] NOT NULL`);
         lines.push(`  [created_date] [udd_created_date]`);
         lines.push(`  [modified_by] [udd_modified_by]`);
@@ -237,6 +238,7 @@ if (gridFields.length > 0 && detailsDefs) {
             // ✅ Audit for Details Table
             if (enableAudit) {
                 detailLines.push(`  [company_code] [udd_company_code] NOT NULL`);
+                detailLines.push(`  [location_code] [udd_location_code] NOT NULL`);
                 detailLines.push(`  [created_by] [udd_created_by] NOT NULL`);
                 detailLines.push(`  [created_date] [udd_created_date]`);
                 detailLines.push(`  [modified_by] [udd_modified_by]`);
@@ -263,6 +265,7 @@ export const getOnlyUDDSQL = (
     if (enableAudit) {
         uddRows.push(
             { fieldName: 'company_code', dataType: 'VARCHAR', size: '18' },
+            { fieldName: 'location_code', dataType: 'VARCHAR', size: '100' },
             { fieldName: 'created_by', dataType: 'VARCHAR', size: '18' },
             { fieldName: 'created_date', dataType: 'DATETIME' },
             { fieldName: 'modified_by', dataType: 'VARCHAR', size: '18' },

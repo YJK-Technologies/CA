@@ -78,7 +78,7 @@ export const getStoredProcSQL = (
 
 
         let inputParams = paramRows
-            .filter(col => !['created_date', 'modified_date'].includes(col.fieldName.toLowerCase()))
+            // .filter(col => !['created_date', 'modified_date'].includes(col.fieldName.toLowerCase()))
             .map(col => `    @${col.fieldName} udd_${col.fieldName}`)
             .join(',\n');
 
@@ -98,6 +98,8 @@ export const getStoredProcSQL = (
             if (field === 'created_by') return '@created_by';
 
             if (field === 'company_code') return '@company_code';
+
+            if (field === 'location_code') return '@location_code';
 
             // ✅ VARBINARY handling
             if (col.dataType?.toUpperCase() === "VARBINARY") {
@@ -125,6 +127,9 @@ export const getStoredProcSQL = (
 
                 if (field === 'company_code')
                     return `        ${col.fieldName} = @company_code`;
+
+                if (field === 'location_code')
+                    return `        ${col.fieldName} = @location_code`;
 
                 // ✅ VARBINARY handling
                 if (col.dataType?.toUpperCase() === "VARBINARY") {
@@ -299,7 +304,9 @@ ${notNullValidation}
 ${updateAssignments}
         WHERE ${primaryKeyCol.fieldName} = ${isStringType(primaryKeyCol.dataType)
                     ? `TRIM(@${primaryKeyCol.fieldName})`
-                    : `@${primaryKeyCol.fieldName}`};
+                    : `@${primaryKeyCol.fieldName}`}
+                    AND company_code = @company_code
+                    AND location_code = @location_code;
     END`;
         }
 
@@ -312,7 +319,9 @@ ${updateAssignments}
         DELETE FROM ${tblName}
         WHERE ${primaryKeyCol.fieldName} = ${isStringType(primaryKeyCol.dataType)
                     ? `TRIM(@${primaryKeyCol.fieldName})`
-                    : `@${primaryKeyCol.fieldName}`};
+                    : `@${primaryKeyCol.fieldName}`}
+                    AND company_code = @company_code
+                    AND location_code = @location_code;
     END`;
         }
 
@@ -343,6 +352,11 @@ GO
         spRows.push(
             {
                 fieldName: 'company_code',
+                dataType: 'VARCHAR',
+                constraints: 'NN'
+            },
+            {
+                fieldName: 'location_code',
                 dataType: 'VARCHAR',
                 constraints: 'NN'
             },
@@ -380,67 +394,72 @@ GO
     );
 
     // =====================================================
-// DETAILS GRID PROCEDURES
-// =====================================================
+    // DETAILS GRID PROCEDURES
+    // =====================================================
 
-const gridFields =
-    rows.filter(
-        r => r.dataType?.toUpperCase() === "GRID"
-    );
-
-gridFields.forEach(gridCol => {
-
-    const gridFieldName =
-        gridCol.fieldName;
-
-    // GET CURRENT GRID ROWS
-    const currentDetailRows =
-        detailsDataMap?.[gridFieldName] || [];
-
-    // SKIP EMPTY GRID
-    if (currentDetailRows.length === 0) {
-        return;
-    }
-
-    const detailsTableName =
-        `tbl_${gridFieldName}`;
-
-    const detailsProcName =
-        `sp_${gridFieldName}`;
-
-    // ADD AUDIT FIELDS
-    let detailProcRows =
-        [...currentDetailRows];
-
-    if (enableAudit) {
-
-        detailProcRows.push(
-            {
-                fieldName: 'company_code',
-                dataType: 'VARCHAR',
-                constraints: 'NN'
-            },
-            {
-                fieldName: 'created_by',
-                dataType: 'VARCHAR',
-                constraints: 'NN'
-            },
-            {
-                fieldName: 'created_date',
-                dataType: 'DATETIME'
-            },
-            {
-                fieldName: 'modified_by',
-                dataType: 'VARCHAR'
-            },
-            {
-                fieldName: 'modified_date',
-                dataType: 'DATETIME'
-            }
+    const gridFields =
+        rows.filter(
+            r => r.dataType?.toUpperCase() === "GRID"
         );
-    }
 
-    script += `
+    gridFields.forEach(gridCol => {
+
+        const gridFieldName =
+            gridCol.fieldName;
+
+        // GET CURRENT GRID ROWS
+        const currentDetailRows =
+            detailsDataMap?.[gridFieldName] || [];
+
+        // SKIP EMPTY GRID
+        if (currentDetailRows.length === 0) {
+            return;
+        }
+
+        const detailsTableName =
+            `tbl_${gridFieldName}`;
+
+        const detailsProcName =
+            `sp_${gridFieldName}`;
+
+        // ADD AUDIT FIELDS
+        let detailProcRows =
+            [...currentDetailRows];
+
+        if (enableAudit) {
+
+            detailProcRows.push(
+                {
+                    fieldName: 'company_code',
+                    dataType: 'VARCHAR',
+                    constraints: 'NN'
+                },
+                {
+                    fieldName: 'location_code',
+                    dataType: 'VARCHAR',
+                    constraints: 'NN'
+                },
+                {
+                    fieldName: 'created_by',
+                    dataType: 'VARCHAR',
+                    constraints: 'NN'
+                },
+                {
+                    fieldName: 'created_date',
+                    dataType: 'DATETIME'
+                },
+                {
+                    fieldName: 'modified_by',
+                    dataType: 'VARCHAR'
+                },
+                {
+                    fieldName: 'modified_date',
+                    dataType: 'DATETIME'
+                }
+            );
+        }
+
+        script += `
 
 /* =====================================================
    DETAILS TABLE STORED PROCEDURE
@@ -449,12 +468,12 @@ gridFields.forEach(gridCol => {
 
 `;
 
-    script += buildStoredProc(
-        detailProcRows,
-        detailsTableName,
-        detailsProcName
-    );
+        script += buildStoredProc(
+            detailProcRows,
+            detailsTableName,
+            detailsProcName
+        );
 
-});
+    });
     return script;
 };

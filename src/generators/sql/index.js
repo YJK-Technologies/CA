@@ -31,6 +31,10 @@ export const getOnlyUDDSQL = (
                 dataType: "VARCHAR"
             },
             {
+                fieldName: "location_code",
+                dataType: "VARCHAR"
+            },
+            {
                 fieldName: "created_by",
                 dataType: "VARCHAR"
             },

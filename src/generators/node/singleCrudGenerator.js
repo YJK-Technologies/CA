@@ -103,42 +103,42 @@ export const getNodeSingleCrudScript = (
 
     // -------- MULTI DETAILS CRUD --------
 
-let exportFunctions = [
-    `${name}Insert`,
-    `${name}Update`,
-    `${name}Delete`
-];
+    let exportFunctions = [
+        `${name}Insert`,
+        `${name}Update`,
+        `${name}Delete`
+    ];
 
-if (detailsTables && detailsTables.length > 0) {
+    if (detailsTables && detailsTables.length > 0) {
 
-    detailsTables.forEach(detailTable => {
+        detailsTables.forEach(detailTable => {
 
-        const gridName = detailTable.gridName;
+            const gridName = detailTable.gridName;
 
-        const detailRows =
-            detailTable.rowData?.filter(r => r.fieldName) || [];
+            const detailRows =
+                detailTable.rowData?.filter(r => r.fieldName) || [];
 
-        if (detailRows.length === 0) return;
+            if (detailRows.length === 0) return;
 
-        const detailsProcName = `sp_${name}_${gridName}`;
+            const detailsProcName = `sp_${name}_${gridName}`;
 
-        script += `\n\n// ---- ${gridName} DETAILS CRUD ----\n`;
+            script += `\n\n// ---- ${gridName} DETAILS CRUD ----\n`;
 
-        script += buildNodeCrud(
-            `${name}${gridName}`,
-            detailsProcName,
-            detailRows
-        );
+            script += buildNodeCrud(
+                `${name}${gridName}`,
+                detailsProcName,
+                detailRows
+            );
 
-        exportFunctions.push(
-            `${name}${gridName}Insert`,
-            `${name}${gridName}Update`,
-            `${name}${gridName}Delete`
-        );
-    });
-}
+            exportFunctions.push(
+                `${name}${gridName}Insert`,
+                `${name}${gridName}Update`,
+                `${name}${gridName}Delete`
+            );
+        });
+    }
 
-script += `\nmodule.exports = { ${exportFunctions.join(", ")} };`;
+    script += `\nmodule.exports = { ${exportFunctions.join(", ")} };`;
 
-return script;
+    return script;
 };
