@@ -4,9 +4,42 @@ export const getOnlyUDDSQL = (
     enableAudit
 ) => {
 
-    const validRows = rows.filter(
-        row => row.fieldName && row.fieldName.trim() !== ""
+    const allRows = [...rows];
+
+// Add audit fields
+if (enableAudit) {
+
+    allRows.push(
+        {
+            fieldName: "company_code",
+            dataType: "VARCHAR"
+        },
+        {
+            fieldName: "location_code",
+            dataType: "VARCHAR"
+        },
+        {
+            fieldName: "created_by",
+            dataType: "VARCHAR"
+        },
+        {
+            fieldName: "created_date",
+            dataType: "DATETIME"
+        },
+        {
+            fieldName: "modified_by",
+            dataType: "VARCHAR"
+        },
+        {
+            fieldName: "modified_date",
+            dataType: "DATETIME"
+        }
     );
+}
+
+const validRows = allRows.filter(
+    row => row.fieldName && row.fieldName.trim() !== ""
+);
 
     let sql = "";
 
