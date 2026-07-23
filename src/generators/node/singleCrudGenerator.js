@@ -1,6 +1,17 @@
 import { getValidRows } from "../shared/helpers";
 import { getSqlType } from "./sqlTypeHelper";
 
+// Helper function to check numeric data types
+const isNumericType = (dataType) => {
+    if (!dataType) return false;
+    const numTypes = [
+        "INT", "BIGINT", "SMALLINT", "TINYINT", 
+        "DECIMAL", "NUMERIC", "FLOAT", "REAL", 
+        "MONEY", "SMALLMONEY"
+    ];
+    return numTypes.includes(dataType.toUpperCase());
+};
+
 // ================= SINGLE CRUD =================
 export const getNodeSingleCrudScript = (
     gridRef,
@@ -35,7 +46,7 @@ export const getNodeSingleCrudScript = (
             return true;
         });
 
-        // Detect Primary Key (Same as Procedure Logic)
+        // Primary Key Detection
         const primaryKeyCol =
             paramRows.find(col => hasConstraint(col.constraints, ["PK", "PRIMARY KEY"])) ||
             paramRows.find(col => hasConstraint(col.constraints, ["AI", "IDENTITY"])) ||
@@ -47,23 +58,27 @@ export const getNodeSingleCrudScript = (
 
             code += `\nconst ${funcName}${mode} = async (req, res) => {\n`;
 
-            // Filter relevant fields for Delete mode vs Insert/Update
-            const activeParamRows = (mode === 'Delete' && primaryKeyCol)
-                ? [primaryKeyCol]
-                : paramRows;
+            // 1. Destructuring: Delete mode gets ONLY PK + Audit Codes
+            let reqBodyFields = [];
 
-            const binaryFields = activeParamRows.filter(col => col.dataType.toLowerCase() === "varbinary");
-            const otherFields = activeParamRows.filter(col => col.dataType.toLowerCase() !== "varbinary");
+            if (mode === 'Delete') {
+                if (primaryKeyCol) {
+                    reqBodyFields.push(primaryKeyCol.fieldName);
+                }
+                if (enableAudit) {
+                    reqBodyFields.push("company_code", "location_code");
+                }
+            } else {
+                const otherFields = paramRows.filter(col => col.dataType.toLowerCase() !== "varbinary");
+                reqBodyFields = otherFields.map(col => col.fieldName);
 
-            // Dynamic destructuring based on mode & enableAudit
-            const reqBodyFields = otherFields.map(col => col.fieldName);
-
-            if (enableAudit) {
-                reqBodyFields.push("company_code", "location_code");
-                if (mode === 'Insert') {
-                    reqBodyFields.push("created_by", "created_date");
-                } else {
-                    reqBodyFields.push("modified_by", "modified_date");
+                if (enableAudit) {
+                    reqBodyFields.push("company_code", "location_code");
+                    if (mode === 'Insert') {
+                        reqBodyFields.push("created_by", "created_date");
+                    } else {
+                        reqBodyFields.push("modified_by", "modified_date");
+                    }
                 }
             }
 
@@ -71,46 +86,79 @@ export const getNodeSingleCrudScript = (
                 code += `  const {\n    ${reqBodyFields.join(',\n    ')}\n  } = req.body;\n`;
             }
 
-            binaryFields.forEach(col => {
-                code += `  let ${col.fieldName} = null;\n`;
-                code += `  if (req.file) ${col.fieldName} = req.file.buffer;\n`;
-            });
+            if (mode !== 'Delete') {
+                const binaryFields = paramRows.filter(col => col.dataType.toLowerCase() === "varbinary");
+                binaryFields.forEach(col => {
+                    code += `  let ${col.fieldName} = null;\n`;
+                    code += `  if (req.file) ${col.fieldName} = req.file.buffer;\n`;
+                });
+            }
 
             code += `\n  try {\n`;
             code += `    const pool = await sql.connect(dbConfig);\n`;
             code += `    await pool.request()\n`;
             code += `      .input("mode", sql.NVarChar, "${mode[0]}")\n`;
 
-            activeParamRows.forEach(col => {
-                const sqlType = getSqlType(col);
-                code += `      .input("${col.fieldName}", ${sqlType}, ${col.fieldName})\n`;
-            });
+            // 2. Input Bindings: Delete mode ONLY binds PK & Audit Codes
+            if (mode === 'Delete') {
+                if (primaryKeyCol) {
+                    const sqlType = getSqlType(primaryKeyCol);
+                    code += `      .input("${primaryKeyCol.fieldName}", ${sqlType}, ${primaryKeyCol.fieldName})\n`;
+                }
+                if (enableAudit) {
+                    code += `      .input("company_code", sql.NVarChar, company_code)\n`;
+                    code += `      .input("location_code", sql.NVarChar, location_code)\n`;
+                }
+            } else {
+                paramRows.forEach(col => {
+                    const sqlType = getSqlType(col);
+                    code += `      .input("${col.fieldName}", ${sqlType}, ${col.fieldName})\n`;
+                });
 
-            // Dynamic Audit Input Binding & SQL Exec Placeholders
-            const dynamicAuditExecParams = [];
+                if (enableAudit) {
+                    code += `      .input("company_code", sql.NVarChar, company_code)\n`;
+                    code += `      .input("location_code", sql.NVarChar, location_code)\n`;
 
-            if (enableAudit) {
-                code += `      .input("company_code", sql.NVarChar, company_code)\n`;
-                code += `      .input("location_code", sql.NVarChar, location_code)\n`;
-                dynamicAuditExecParams.push("@company_code", "@location_code");
-
-                if (mode === 'Insert') {
-                    code += `      .input("created_by", sql.NVarChar, created_by)\n`;
-                    code += `      .input("created_date", sql.DateTime, created_date)\n`;
-                    
-                    dynamicAuditExecParams.push("@created_by", "@created_date", "''", "''");
-                } else {
-                    code += `      .input("modified_by", sql.NVarChar, modified_by)\n`;
-                    code += `      .input("modified_date", sql.DateTime, modified_date)\n`;
-
-                    dynamicAuditExecParams.push("''", "''", "@modified_by", "@modified_date");
+                    if (mode === 'Insert') {
+                        code += `      .input("created_by", sql.NVarChar, created_by)\n`;
+                        code += `      .input("created_date", sql.DateTime, created_date)\n`;
+                    } else {
+                        code += `      .input("modified_by", sql.NVarChar, modified_by)\n`;
+                        code += `      .input("modified_date", sql.DateTime, modified_date)\n`;
+                    }
                 }
             }
 
-            const execParams = ["@mode"]
-                .concat(activeParamRows.map(col => `@${col.fieldName}`))
-                .concat(dynamicAuditExecParams)
-                .join(", ");
+            // 3. EXEC Query String Construction (Positional Matching)
+            const execParamsList = ["@mode"];
+
+            paramRows.forEach(col => {
+                if (mode === 'Delete') {
+                    if (col.fieldName === primaryKeyCol?.fieldName) {
+                        execParamsList.push(`@${col.fieldName}`);
+                    } else {
+                        // Integer/Decimal = 0, String/Other = ''
+                        execParamsList.push(isNumericType(col.dataType) ? "0" : "''");
+                    }
+                } else {
+                    execParamsList.push(`@${col.fieldName}`);
+                }
+            });
+
+            if (enableAudit) {
+                execParamsList.push("@company_code", "@location_code");
+
+                if (mode === 'Insert') {
+                    execParamsList.push("@created_by", "@created_date", "''", "''");
+                } else if (mode === 'Update') {
+                    execParamsList.push("''", "''", "@modified_by", "@modified_date");
+                } else if (mode === 'Delete') {
+                    // In delete mode, created & modified fields are passed as blank strings
+                    execParamsList.push("''", "''", "''", "''");
+                }
+            }
+
+            const execParams = execParamsList.join(", ");
 
             code += `      .query(\`EXEC ${procName} ${execParams}\`);\n`;
 
