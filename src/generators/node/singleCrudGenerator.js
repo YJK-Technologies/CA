@@ -1,12 +1,12 @@
 import { getValidRows } from "../shared/helpers";
-
 import { getSqlType } from "./sqlTypeHelper";
 
 // ================= SINGLE CRUD =================
 export const getNodeSingleCrudScript = (
     gridRef,
     objectRowData,
-    detailsTables = []
+    detailsTables = [],
+    enableAudit = false
 ) => {
 
     const rows = [];
@@ -21,22 +21,25 @@ export const getNodeSingleCrudScript = (
     const validRows = getValidRows(rows);
     const procName = `sp_${name}`;
 
+    const hasConstraint = (constraints, types = []) => {
+        if (!constraints) return false;
+        const normalized = constraints.toString().toUpperCase().replace(/\s+/g, ' ').trim();
+        return types.some(type => normalized.includes(type.toUpperCase()));
+    };
+
     // ---------- COMMON BUILDER ----------
     const buildNodeCrud = (funcName, procName, contentRows) => {
 
         const paramRows = contentRows.filter(col => {
             if (col.dataType?.toUpperCase() === "GRID") return false;
-
-            const field = col.fieldName.toLowerCase();
-
-            // ❌ Do not send auto-generated fields
-
-
             return true;
         });
 
-        const binaryFields = paramRows.filter(col => col.dataType.toLowerCase() === "varbinary");
-        const otherFields = paramRows.filter(col => col.dataType.toLowerCase() !== "varbinary");
+        // Detect Primary Key (Same as Procedure Logic)
+        const primaryKeyCol =
+            paramRows.find(col => hasConstraint(col.constraints, ["PK", "PRIMARY KEY"])) ||
+            paramRows.find(col => hasConstraint(col.constraints, ["AI", "IDENTITY"])) ||
+            paramRows[0];
 
         let code = "";
 
@@ -44,15 +47,28 @@ export const getNodeSingleCrudScript = (
 
             code += `\nconst ${funcName}${mode} = async (req, res) => {\n`;
 
-            if (otherFields.length > 0) {
-                code += `  const {
-  ${otherFields.map(col => col.fieldName).join(', ')},
-  created_date,
-  modified_date,
-  created_by,
-  modified_by,
-  company_code
-} = req.body;\n`;
+            // Filter relevant fields for Delete mode vs Insert/Update
+            const activeParamRows = (mode === 'Delete' && primaryKeyCol)
+                ? [primaryKeyCol]
+                : paramRows;
+
+            const binaryFields = activeParamRows.filter(col => col.dataType.toLowerCase() === "varbinary");
+            const otherFields = activeParamRows.filter(col => col.dataType.toLowerCase() !== "varbinary");
+
+            // Dynamic destructuring based on mode & enableAudit
+            const reqBodyFields = otherFields.map(col => col.fieldName);
+
+            if (enableAudit) {
+                reqBodyFields.push("company_code", "location_code");
+                if (mode === 'Insert') {
+                    reqBodyFields.push("created_by", "created_date");
+                } else {
+                    reqBodyFields.push("modified_by", "modified_date");
+                }
+            }
+
+            if (reqBodyFields.length > 0) {
+                code += `  const {\n    ${reqBodyFields.join(',\n    ')}\n  } = req.body;\n`;
             }
 
             binaryFields.forEach(col => {
@@ -65,22 +81,35 @@ export const getNodeSingleCrudScript = (
             code += `    await pool.request()\n`;
             code += `      .input("mode", sql.NVarChar, "${mode[0]}")\n`;
 
-            paramRows.forEach(col => {
+            activeParamRows.forEach(col => {
                 const sqlType = getSqlType(col);
                 code += `      .input("${col.fieldName}", ${sqlType}, ${col.fieldName})\n`;
             });
 
-            // ✅ ALWAYS ADD AUDIT FIELDS
-            code += `      .input("company_code", sql.NVarChar, company_code)\n`;
-            code += `      .input("created_by", sql.NVarChar, created_by)\n`;
-            code += `      .input("created_date", sql.DateTime, created_date)\n`;
-            code += `      .input("modified_by", sql.NVarChar, modified_by)\n`;
-            code += `      .input("modified_date", sql.DateTime, modified_date)\n`;
+            // Dynamic Audit Input Binding & SQL Exec Placeholders
+            const dynamicAuditExecParams = [];
 
+            if (enableAudit) {
+                code += `      .input("company_code", sql.NVarChar, company_code)\n`;
+                code += `      .input("location_code", sql.NVarChar, location_code)\n`;
+                dynamicAuditExecParams.push("@company_code", "@location_code");
+
+                if (mode === 'Insert') {
+                    code += `      .input("created_by", sql.NVarChar, created_by)\n`;
+                    code += `      .input("created_date", sql.DateTime, created_date)\n`;
+                    
+                    dynamicAuditExecParams.push("@created_by", "@created_date", "''", "''");
+                } else {
+                    code += `      .input("modified_by", sql.NVarChar, modified_by)\n`;
+                    code += `      .input("modified_date", sql.DateTime, modified_date)\n`;
+
+                    dynamicAuditExecParams.push("''", "''", "@modified_by", "@modified_date");
+                }
+            }
 
             const execParams = ["@mode"]
-                .concat(paramRows.map(col => `@${col.fieldName}`))
-                .concat(["@company_code", "@created_by", "@created_date", "@modified_by", "@modified_date"])
+                .concat(activeParamRows.map(col => `@${col.fieldName}`))
+                .concat(dynamicAuditExecParams)
                 .join(", ");
 
             code += `      .query(\`EXEC ${procName} ${execParams}\`);\n`;
@@ -102,7 +131,6 @@ export const getNodeSingleCrudScript = (
     script += buildNodeCrud(name, procName, validRows);
 
     // -------- MULTI DETAILS CRUD --------
-
     let exportFunctions = [
         `${name}Insert`,
         `${name}Update`,
