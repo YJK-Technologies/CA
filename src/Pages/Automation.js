@@ -1364,7 +1364,8 @@ ${tableScript}
             getNodeSingleCrudScript(
                 mainGridRef,
                 objectRowData,
-                detailsTables
+                detailsTables,
+                enableAudit
             );
 
         if (singleNodeScript) {
@@ -1405,7 +1406,8 @@ ${tableScript}
             getNodeLoopCrudScripts(
                 mainGridRef,
                 objectRowData,
-                detailsTables
+                detailsTables,
+                enableAudit
             );
 
         if (loopNodeScript) {
@@ -1566,7 +1568,8 @@ ${tableSQL}
             nodeSingle = getNodeSingleCrudScript(
                 mainGridRef,
                 objectRowData,
-                nodeSingleDetailsTables
+                nodeSingleDetailsTables,
+                enableAudit
             );
 
             const nodeLoopDetailsTables = Object.entries(detailsDataMap || {}).map(
@@ -1579,7 +1582,8 @@ ${tableSQL}
             nodeLoop = getNodeLoopCrudScripts(
                 mainGridRef,
                 objectRowData,
-                nodeLoopDetailsTables
+                nodeLoopDetailsTables,
+                enableAudit
             );
         }
 
@@ -2560,6 +2564,7 @@ ${tableSQL}
                     </Button>
                 </div>
                 <Form.Control
+                    style={{height: "500px"}}
                     as="textarea"
                     value={sqlPreview}
                     rows={10}
