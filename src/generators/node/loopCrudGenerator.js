@@ -1,6 +1,17 @@
 import { getValidRows } from "../shared/helpers";
 import { getSqlType } from "./sqlTypeHelper";
 
+// Helper function to check numeric data types
+const isNumericType = (dataType) => {
+    if (!dataType) return false;
+    const numTypes = [
+        "INT", "BIGINT", "SMALLINT", "TINYINT", 
+        "DECIMAL", "NUMERIC", "FLOAT", "REAL", 
+        "MONEY", "SMALLMONEY"
+    ];
+    return numTypes.includes(dataType.toUpperCase());
+};
+
 // ================= LOOP CRUD =================
 export const getNodeLoopCrudScripts = (
     gridRef,
@@ -35,16 +46,11 @@ export const getNodeLoopCrudScripts = (
             return true;
         });
 
-        // Detect Primary Key (Same as Procedure Logic)
+        // Primary Key Detection
         const primaryKeyCol =
             paramRows.find(col => hasConstraint(col.constraints, ["PK", "PRIMARY KEY"])) ||
             paramRows.find(col => hasConstraint(col.constraints, ["AI", "IDENTITY"])) ||
             paramRows[0];
-
-        // Delete mode-la primary key only, other modes-la all params
-        const activeParamRows = (mode === 'D' && primaryKeyCol)
-            ? [primaryKeyCol]
-            : paramRows;
 
         let script = `// Auto-generated ${funcName} API for ${procName}\n`;
 
@@ -62,36 +68,64 @@ export const getNodeLoopCrudScripts = (
         script += `      await pool.request()\n`;
         script += `        .input("mode", sql.NVarChar, "${mode}")\n`;
 
-        activeParamRows.forEach((col) => {
-            const sqlType = getSqlType(col);
-            script += `        .input("${col.fieldName}", ${sqlType}, item.${col.fieldName})\n`;
-        });
+        // Bindings logic for Loop
+        if (mode === 'D') {
+            if (primaryKeyCol) {
+                const sqlType = getSqlType(primaryKeyCol);
+                script += `        .input("${primaryKeyCol.fieldName}", ${sqlType}, item.${primaryKeyCol.fieldName})\n`;
+            }
+            if (enableAudit) {
+                script += `        .input("company_code", sql.NVarChar, item.company_code)\n`;
+                script += `        .input("location_code", sql.NVarChar, item.location_code)\n`;
+            }
+        } else {
+            paramRows.forEach((col) => {
+                const sqlType = getSqlType(col);
+                script += `        .input("${col.fieldName}", ${sqlType}, item.${col.fieldName})\n`;
+            });
 
-        // Dynamic Loop Audit Binding based on mode
-        const dynamicAuditExecParams = [];
+            if (enableAudit) {
+                script += `        .input("company_code", sql.NVarChar, item.company_code)\n`;
+                script += `        .input("location_code", sql.NVarChar, item.location_code)\n`;
 
-        if (enableAudit) {
-            script += `        .input("company_code", sql.NVarChar, item.company_code)\n`;
-            script += `        .input("location_code", sql.NVarChar, item.location_code)\n`;
-            dynamicAuditExecParams.push("@company_code", "@location_code");
-
-            if (mode === 'I') {
-                script += `        .input("created_by", sql.NVarChar, item.created_by)\n`;
-                script += `        .input("created_date", sql.DateTime, item.created_date)\n`;
-
-                dynamicAuditExecParams.push("@created_by", "@created_date", "''", "''");
-            } else {
-                script += `        .input("modified_by", sql.NVarChar, item.modified_by)\n`;
-                script += `        .input("modified_date", sql.DateTime, item.modified_date)\n`;
-
-                dynamicAuditExecParams.push("''", "''", "@modified_by", "@modified_date");
+                if (mode === 'I') {
+                    script += `        .input("created_by", sql.NVarChar, item.created_by)\n`;
+                    script += `        .input("created_date", sql.DateTime, item.created_date)\n`;
+                } else if (mode === 'U') {
+                    script += `        .input("modified_by", sql.NVarChar, item.modified_by)\n`;
+                    script += `        .input("modified_date", sql.DateTime, item.modified_date)\n`;
+                }
             }
         }
 
-        const execParams = ["@mode"]
-            .concat(activeParamRows.map(col => `@${col.fieldName}`))
-            .concat(dynamicAuditExecParams)
-            .join(", ");
+        // EXEC query string parameter building
+        const execParamsList = ["@mode"];
+
+        paramRows.forEach(col => {
+            if (mode === 'D') {
+                if (col.fieldName === primaryKeyCol?.fieldName) {
+                    execParamsList.push(`@${col.fieldName}`);
+                } else {
+                    execParamsList.push(isNumericType(col.dataType) ? "0" : "''");
+                }
+            } else {
+                execParamsList.push(`@${col.fieldName}`);
+            }
+        });
+
+        if (enableAudit) {
+            execParamsList.push("@company_code", "@location_code");
+
+            if (mode === 'I') {
+                execParamsList.push("@created_by", "@created_date", "''", "''");
+            } else if (mode === 'U') {
+                execParamsList.push("''", "''", "@modified_by", "@modified_date");
+            } else if (mode === 'D') {
+                execParamsList.push("''", "''", "''", "''");
+            }
+        }
+
+        const execParams = execParamsList.join(", ");
 
         script += `        .query(\`EXEC ${procName} ${execParams}\`);\n`;
         script += `    }\n`;
