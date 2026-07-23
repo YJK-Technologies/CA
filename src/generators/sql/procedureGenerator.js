@@ -58,6 +58,7 @@ export const getStoredProcSQL = (
             );
         };
 
+        // ✅ Fallback to 1st Row if no PK / AI Constraint found
         const primaryKeyCol =
             contentRows.find(col =>
                 hasConstraint(col.constraints, ["PK", "PRIMARY KEY"])
@@ -76,9 +77,7 @@ export const getStoredProcSQL = (
 
         let paramRows = contentRows.filter(col => col.dataType?.toUpperCase() !== "GRID");
 
-
         let inputParams = paramRows
-            // .filter(col => !['created_date', 'modified_date'].includes(col.fieldName.toLowerCase()))
             .map(col => `    @${col.fieldName} udd_${col.fieldName}`)
             .join(',\n');
 
@@ -114,7 +113,7 @@ export const getStoredProcSQL = (
         const updateAssignments = paramRows
             .filter(col => {
                 const field = col.fieldName.toLowerCase();
-                return !col.primaryKey && field !== 'created_date' && field !== 'created_by';
+                return col.fieldName !== primaryKeyCol?.fieldName && field !== 'created_date' && field !== 'created_by';
             })
             .map(col => {
                 const field = col.fieldName.toLowerCase();
@@ -145,6 +144,11 @@ export const getStoredProcSQL = (
         const selectFields = contentRows.map(col => col.fieldName).join(', ');
 
         let script = `USE [${dbName}];\nGO\n\nCREATE PROCEDURE [dbo].[${spName}]\n(\n    @mode udd_mode,\n${inputParams}\n)\nAS\nBEGIN\n`;
+
+        // Dynamic WHERE Clause handling Audit Columns
+        const auditWhereClause = enableAudit 
+            ? `\n                    AND company_code = @company_code\n                    AND location_code = @location_code`
+            : '';
 
         // =========================
         // NULL HANDLING
@@ -225,10 +229,6 @@ export const getStoredProcSQL = (
 
                 const datatype = col.dataType?.toUpperCase();
 
-                // =========================
-                // NUMBER TYPES
-                // =========================
-
                 if (
                     [
                         "INT",
@@ -252,10 +252,6 @@ export const getStoredProcSQL = (
         RETURN
     END`;
                 }
-
-                // =========================
-                // TEXT / DATE TYPES
-                // =========================
 
                 return `
     IF ISNULL(TRIM(@${field}), '') = ''
@@ -304,9 +300,7 @@ ${notNullValidation}
 ${updateAssignments}
         WHERE ${primaryKeyCol.fieldName} = ${isStringType(primaryKeyCol.dataType)
                     ? `TRIM(@${primaryKeyCol.fieldName})`
-                    : `@${primaryKeyCol.fieldName}`}
-                    AND company_code = @company_code
-                    AND location_code = @location_code;
+                    : `@${primaryKeyCol.fieldName}`}${auditWhereClause};
     END`;
         }
 
@@ -319,9 +313,7 @@ ${updateAssignments}
         DELETE FROM ${tblName}
         WHERE ${primaryKeyCol.fieldName} = ${isStringType(primaryKeyCol.dataType)
                     ? `TRIM(@${primaryKeyCol.fieldName})`
-                    : `@${primaryKeyCol.fieldName}`}
-                    AND company_code = @company_code
-                    AND location_code = @location_code;
+                    : `@${primaryKeyCol.fieldName}`}${auditWhereClause};
     END`;
         }
 
