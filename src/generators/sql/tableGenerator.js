@@ -3,6 +3,9 @@ import {
     hasConstraint
 } from "../shared/helpers";
 
+// Helper: Sanitize field names by replacing spaces with underscores
+const sanitizeFieldName = (name) => name ? name.trim().replace(/\s+/g, '_') : '';
+
 // Helper: Generate UDD Statements
 export const getUDDStatements = (rows) => {
     let uddScript = '';
@@ -10,10 +13,14 @@ export const getUDDStatements = (rows) => {
     rows.forEach(col => {
         if (!col.fieldName || !col.dataType) return;
 
+        // SKIP generating UDD statement if Existing UDD is specified
+        if (col.existingUDD && col.existingUDD.trim() !== '') return;
+
+        const cleanFieldName = sanitizeFieldName(col.fieldName);
         const dataType = col.dataType.toUpperCase();
         let fullType = dataType;
 
-        // ✅ Special handling for VARBINARY
+        // Special handling for VARBINARY
         if (dataType === "VARBINARY") {
             fullType = "VARBINARY(MAX)";
         }
@@ -22,34 +29,45 @@ export const getUDDStatements = (rows) => {
             fullType += `(${col.size})`;
         }
 
-        uddScript += `CREATE TYPE [udd_${col.fieldName}] FROM ${fullType};\nGO\n`;
+        uddScript += `CREATE TYPE [udd_${cleanFieldName}] FROM ${fullType};\nGO\n`;
     });
 
     return uddScript;
 };
 
+// Helper: Get target data type for table column definition
+const getColumnType = (col) => {
+    if (col.dataType?.toUpperCase() === "VARBINARY") {
+        return "VARBINARY(MAX)";
+    }
+    if (col.existingUDD && col.existingUDD.trim() !== '') {
+        return `[${col.existingUDD.trim()}]`;
+    }
+    const cleanFieldName = sanitizeFieldName(col.fieldName);
+    return `[udd_${cleanFieldName}]`;
+};
+
+// Helper: Identity column dynamic creation rule check
+const shouldCreateAutoIdentity = (rowsList) => {
+    return !rowsList.some(col =>
+        hasConstraint(col.constraints, [
+            "PK", "PRIMARY KEY",
+            "FK", "FOREIGN KEY",
+            "NN", "NOT NULL",
+            "AI", "IDENTITY"
+        ])
+    );
+};
+
 // ================= TABLE SQL =================
 export const getTableSQL = (
-    gridRef,
+    rows,
     objectRowData,
-    detailsDataMap,
+    detailsDataMap = {},
     detailsDefs,
-    enableAudit
+    enableAudit = false,
+    detailsTableTypes = {} // 🔹 Track: true = Separate Table, false = Part of Main Table
 ) => {
-
-    const rows = [];
-
-    if (!gridRef.current || !gridRef.current.api) {
-        alert('Grid is not ready yet!');
-        return '';
-    }
-
-    gridRef.current.api.forEachNode(node => {
-        if (node && node.data) {
-            rows.push(node.data);
-        }
-    });
-
     const validRows = getValidRows(rows);
 
     const dbName = objectRowData.find(row => row.object === 'DB')?.name;
@@ -61,39 +79,93 @@ export const getTableSQL = (
         return '';
     }
 
-    const tableName = `tbl_${objectName}`;
-    let script = `USE [${dbName}];\nGO\n\n`;
+    const tableName = `tbl_${sanitizeFieldName(objectName)}`;
+    let script = `-- =============================================\n`;
+    script += `-- TABLE NAME: ${tableName}\n`;
+    script += `-- =============================================\n\n`;
+    script += `USE [${dbName}];\nGO\n\n`;
 
-    script += `\n-- Create Main Table\n`;
+    // 🔹 Generate UDD Types required for Main Table + Merged Detail Fields
+    let allMainRowsForUDD = [...validRows];
+
+    validRows.forEach(col => {
+        if (col.dataType?.toUpperCase() === "GRID") {
+            const rawFieldName = col.fieldName;
+            const isSeparateTable = detailsTableTypes[rawFieldName] === true;
+            
+            // If NOT separate table, merge detail fields into main UDD list
+            if (!isSeparateTable) {
+                const detailRows = detailsDataMap?.[rawFieldName] || [];
+                allMainRowsForUDD.push(...getValidRows(detailRows));
+            }
+        }
+    });
+
+    const uddTypesScript = getOnlyUDDSQL(allMainRowsForUDD, {}, enableAudit);
+    if (uddTypesScript && uddTypesScript.trim() !== '') {
+        script += `-- =============================================\n`;
+        script += `-- UDD Types for ${tableName}\n`;
+        script += `-- =============================================\n`;
+        script += `${uddTypesScript.trim()}\n\n`;
+    }
+
+    // 🔹 Start Main Table Definition
     script += `CREATE TABLE [${tableName}] (\n`;
 
     const lines = [];
 
-    // Columns
+    // Check if auto-identity column is required
+    const needsAutoIdentity = shouldCreateAutoIdentity(validRows);
+
+    if (needsAutoIdentity) {
+        lines.push(`  [id] INT IDENTITY(1,1) NOT NULL`);
+    }
+
+    // Process Main Table Columns
     validRows.forEach(col => {
-        if (col.dataType === "GRID") {
-            lines.push(`  -- [${col.fieldName}] GRID (see details table)`);
-        } else {
+        const cleanColName = sanitizeFieldName(col.fieldName);
+        
+        if (col.dataType?.toUpperCase() === "GRID") {
+            const isSeparateTable = detailsTableTypes[col.fieldName] === true;
 
-            let line = '';
+            if (!isSeparateTable) {
+                // 🔹 MERGE DETAIL FIELDS DIRECTLY INTO MAIN TABLE
+                const detailRows = detailsDataMap?.[col.fieldName] || [];
+                const validDetailRows = getValidRows(detailRows);
 
-            if (col.dataType?.toUpperCase() === "VARBINARY") {
-                line = `  [${col.fieldName}] VARBINARY(MAX)`;
+                validDetailRows.forEach(detailCol => {
+                    const cleanDetailColName = sanitizeFieldName(detailCol.fieldName);
+                    let line = `  [${cleanDetailColName}] ${getColumnType(detailCol)}`;
+
+                    if (hasConstraint(detailCol.constraints, ["AI", "IDENTITY"])) {
+                        line += ' IDENTITY(1,1)';
+                    }
+                    if (hasConstraint(detailCol.constraints, ["NN", "NOT NULL"])) {
+                        line += ' NOT NULL';
+                    }
+                    if (
+                        hasConstraint(detailCol.constraints, ["DF", "DEFAULT"]) &&
+                        detailCol.defaultValue
+                    ) {
+                        line += ` DEFAULT ${detailCol.defaultValue}`;
+                    }
+
+                    lines.push(line);
+                });
             } else {
-                line = `  [${col.fieldName}] [udd_${col.fieldName}]`;
+                lines.push(`  -- [${cleanColName}] GRID (see details table)`);
             }
+        } else {
+            let line = `  [${cleanColName}] ${getColumnType(col)}`;
 
-            // Auto Increment
             if (hasConstraint(col.constraints, ["AI", "IDENTITY"])) {
                 line += ' IDENTITY(1,1)';
             }
 
-            // Not Null
             if (hasConstraint(col.constraints, ["NN", "NOT NULL"])) {
                 line += ' NOT NULL';
             }
 
-            // ❌ Remove DEFAULT for audit fields
             if (
                 hasConstraint(col.constraints, ["DF", "DEFAULT"]) &&
                 col.defaultValue &&
@@ -106,39 +178,42 @@ export const getTableSQL = (
         }
     });
 
-    // Primary Key
-    const primaryKeys = rows.filter(col => hasConstraint(col.constraints, ["PK", "PRIMARY KEY"])).map(col => `[${col.fieldName}]`);
+    // Primary Keys
+    const primaryKeys = validRows
+        .filter(col => hasConstraint(col.constraints, ["PK", "PRIMARY KEY"]))
+        .map(col => `[${sanitizeFieldName(col.fieldName)}]`);
+
     if (primaryKeys.length > 0) {
         lines.push(`  PRIMARY KEY (${primaryKeys.join(', ')})`);
+    } else if (needsAutoIdentity) {
+        lines.push(`  PRIMARY KEY ([id])`);
     }
 
-    // UNIQUE Constraints (NEW ✅)
-    const uniqueCols = rows.filter(col => hasConstraint(col.constraints, ["UQ", "UNIQUE"]));
-
+    // Unique constraints
+    const uniqueCols = validRows.filter(col => hasConstraint(col.constraints, ["UQ", "UNIQUE"]));
     uniqueCols.forEach(col => {
-        lines.push(`  UNIQUE ([${col.fieldName}])`);
+        lines.push(`  UNIQUE ([${sanitizeFieldName(col.fieldName)}])`);
     });
 
     // Foreign Keys
-    const foreignKeys = rows.filter(col =>
+    const foreignKeys = validRows.filter(col =>
         hasConstraint(col.constraints, ["FK", "FOREIGN KEY"]) && col.referenceTable && col.referenceColumn
     );
     foreignKeys.forEach(col => {
         lines.push(
-            `  FOREIGN KEY ([${col.fieldName}]) REFERENCES [tbl_${col.referenceTable}]([${col.referenceColumn}])`
+            `  FOREIGN KEY ([${sanitizeFieldName(col.fieldName)}]) REFERENCES [tbl_${sanitizeFieldName(col.referenceTable)}]([${sanitizeFieldName(col.referenceColumn)}])`
         );
     });
 
-    // CHECK Constraints (NEW 🔥)
-    const checkConstraints = rows.filter(col =>
+    // Check constraints
+    const checkConstraints = validRows.filter(col =>
         hasConstraint(col.constraints, ["CHK", "CHECK"]) && col.checkCondition
     );
-
     checkConstraints.forEach(col => {
         lines.push(`  CHECK (${col.checkCondition})`);
     });
 
-    // ✅ ADD AUDIT COLUMNS BEFORE CLOSING TABLE
+    // Audit Columns
     if (enableAudit) {
         lines.push(`  [company_code] [udd_company_code] NOT NULL`);
         lines.push(`  [location_code] [udd_location_no] NOT NULL`);
@@ -151,52 +226,39 @@ export const getTableSQL = (
     script += lines.join(',\n') + '\n';
     script += ');\nGO\n\n';
 
-    // DETAILS TABLE
-    // DETAILS TABLES
-const gridFields =
-    rows.filter(col =>
-        col.dataType?.toUpperCase() === "GRID"
-    );
+    // 🔹 SEPARATE DETAILS TABLES (Only executed if user checked "Treat as Separate Table")
+    const gridFields = validRows.filter(col => col.dataType?.toUpperCase() === "GRID");
 
-if (gridFields.length > 0 && detailsDefs) {
+    if (gridFields.length > 0 && detailsDefs) {
+        gridFields.forEach(gridCol => {
+            const rawFieldName = gridCol.fieldName;
+            const isSeparateTable = detailsTableTypes[rawFieldName] === true;
 
-    gridFields.forEach(gridCol => {
+            // Skip if user wants it inside the Main Table
+            if (!isSeparateTable) return;
 
-        // GET DETAILS OF CURRENT GRID
-        const detailRows =
-            detailsDataMap?.[gridCol.fieldName] || [];
+            const detailRows = detailsDataMap?.[rawFieldName] || [];
+            if (detailRows.length === 0) return;
 
-        // SKIP EMPTY GRID
-        if (detailRows.length === 0) {
-            return;
-        }
+            const cleanGridName = sanitizeFieldName(rawFieldName);
+            const detailsTableName = `tbl_${cleanGridName}`;
 
-        // TABLE NAME
-        const detailsTableName =
-            `tbl_${gridCol.fieldName}`;
+            script += `-- =============================================\n`;
+            script += `-- SEPARATE DETAILS TABLE : ${cleanGridName}\n`;
+            script += `-- =============================================\n\n`;
+            script += `CREATE TABLE [${detailsTableName}] (\n`;
 
-        script += `USE [${dbName}];\nGO\n\n`;
+            const detailLines = [];
+            const validDetailRows = getValidRows(detailRows);
+            const needsDetailAutoIdentity = shouldCreateAutoIdentity(validDetailRows);
 
-        script +=
-`-- =============================================
--- DETAILS TABLE : ${gridCol.fieldName}
--- =============================================
+            if (needsDetailAutoIdentity) {
+                detailLines.push(`  [id] INT IDENTITY(1,1) NOT NULL`);
+            }
 
-`;
-
-        // CREATE TABLE
-        script += `CREATE TABLE [${detailsTableName}] (\n`;
-
-        const detailLines = [];
-
-        detailRows.forEach(col => {
-                let line = '';
-
-                if (col.dataType?.toUpperCase() === "VARBINARY") {
-                    line = `  [${col.fieldName}] VARBINARY(MAX)`;
-                } else {
-                    line = `  [${col.fieldName}] [udd_${col.fieldName}]`;
-                }
+            validDetailRows.forEach(col => {
+                const cleanDetailColName = sanitizeFieldName(col.fieldName);
+                let line = `  [${cleanDetailColName}] ${getColumnType(col)}`;
 
                 if (hasConstraint(col.constraints, ["AI", "IDENTITY"])) {
                     line += ' IDENTITY(1,1)';
@@ -212,37 +274,14 @@ if (gridFields.length > 0 && detailsDefs) {
                 detailLines.push(line);
             });
 
-            const detailPK = detailRows.filter(col => hasConstraint(col.constraints, ["PK", "PRIMARY KEY"])).map(col => `[${col.fieldName}]`);
+            const detailPK = validDetailRows
+                .filter(col => hasConstraint(col.constraints, ["PK", "PRIMARY KEY"]))
+                .map(col => `[${sanitizeFieldName(col.fieldName)}]`);
+
             if (detailPK.length > 0) {
                 detailLines.push(`  PRIMARY KEY (${detailPK.join(', ')})`);
-            }
-
-            const detailFK = detailRows.filter(col =>
-                hasConstraint(col.constraints, ["FK", "FOREIGN KEY"]) && col.referenceTable && col.referenceColumn
-            );
-            detailFK.forEach(col => {
-                detailLines.push(
-                    `  FOREIGN KEY ([${col.fieldName}]) REFERENCES [tbl_${col.referenceTable}]([${col.referenceColumn}])`
-                );
-            });
-
-            // CHECK Constraints for Details Table (NEW 🔥)
-            const detailCHK = detailRows.filter(col =>
-                hasConstraint(col.constraints, ["CHK", "CHECK"]) && col.checkCondition
-            );
-
-            detailCHK.forEach(col => {
-                detailLines.push(`  CHECK (${col.checkCondition})`);
-            });
-
-            // ✅ Audit for Details Table
-            if (enableAudit) {
-                detailLines.push(`  [company_code] [udd_company_code] NOT NULL`);
-                detailLines.push(`  [location_code] [udd_location_no] NOT NULL`);
-                detailLines.push(`  [created_by] [udd_created_by] NOT NULL`);
-                detailLines.push(`  [created_date] [udd_created_date]`);
-                detailLines.push(`  [modified_by] [udd_modified_by]`);
-                detailLines.push(`  [modified_date] [udd_modified_date]`);
+            } else if (needsDetailAutoIdentity) {
+                detailLines.push(`  PRIMARY KEY ([id])`);
             }
 
             script += detailLines.join(',\n') + '\n';
@@ -258,10 +297,8 @@ export const getOnlyUDDSQL = (
     detailsDataMap = {},
     enableAudit = false
 ) => {
-
     let uddRows = [...rows];
 
-    // Audit fields
     if (enableAudit) {
         uddRows.push(
             { fieldName: 'company_code', dataType: 'VARCHAR', size: '18' },
@@ -273,28 +310,23 @@ export const getOnlyUDDSQL = (
         );
     }
 
-    // ALL DETAILS ROWS
-Object.values(detailsDataMap || {}).forEach(detailRows => {
+    Object.values(detailsDataMap || {}).forEach(detailRows => {
+        if (Array.isArray(detailRows) && detailRows.length > 0) {
+            uddRows.push(...detailRows);
+        }
+    });
 
-    if (detailRows?.length > 0) {
-        uddRows.push(...detailRows);
-    }
-
-});
-
-    // Remove duplicates
     const uniqueRows = [];
-
     const map = new Map();
 
     uddRows.forEach(row => {
+        if (!row || !row.fieldName) return;
+        if (row.existingUDD && row.existingUDD.trim() !== '') return;
 
-        if (!row.fieldName) return;
+        const cleanKey = sanitizeFieldName(row.fieldName).toLowerCase();
 
-        const key = row.fieldName.toLowerCase();
-
-        if (!map.has(key)) {
-            map.set(key, true);
+        if (!map.has(cleanKey)) {
+            map.set(cleanKey, true);
             uniqueRows.push(row);
         }
     });

@@ -1,56 +1,33 @@
 import { BUTTON_CONFIG } from "./buttonConfig";
 
-export const generateButtons = (rows, key) => {
-
+export const generateButtons = (rows, key, indentLevel = 0) => {
+    const pad = indentLevel > 0 ? " ".repeat(indentLevel) : "";
     return rows
         .filter(row => row[key])
         .map(row => {
-
             const value = row[key]?.toString().trim();
-
             const btn = BUTTON_CONFIG[value] || {};
-
             const btnClass = btn.variant === "solid"
                 ? `btn btn-${btn.color || "secondary"}`
                 : `btn btn-outline-${btn.color || "secondary"}`;
 
-            return `
-<button
-   type="button"
-   className="${btnClass}"
->
-   <i className="bi bi-${btn.icon || "circle"}"></i>
-</button>`;
+            return `${pad}<button type="button" className="${btnClass}"><i className="bi bi-${btn.icon || "circle"}"></i></button>`;
         })
         .join("\n");
 };
 
-export const generateAddButtons = (rows) => {
-
+export const generateAddButtons = (rows, indentLevel = 0) => {
+    const pad = indentLevel > 0 ? " ".repeat(indentLevel) : "";
     return rows
-        .filter(row =>
-            row.designAddScreenButtons &&
-            row.designAddScreenButtons.toString().trim() !== ""
-        )
+        .filter(row => row.designAddScreenButtons && row.designAddScreenButtons.toString().trim() !== "")
         .map(row => {
-
-            const value =
-                row.designAddScreenButtons?.toString().trim();
-
+            const value = row.designAddScreenButtons?.toString().trim();
             const btn = BUTTON_CONFIG[value] || {};
-
             const btnClass = btn.variant === "solid"
                 ? `btn btn-${btn.color || "secondary"}`
                 : `btn btn-outline-${btn.color || "secondary"}`;
 
-            return `
-<button
-   type="button"
-   className="${btnClass}"
->
-   <i className="bi bi-${btn.icon || "circle"} me-1"></i>
-   ${value}
-</button>`;
+            return `${pad}<button type="button" className="${btnClass}"><i className="bi bi-${btn.icon || "circle"} me-1"></i>${value}</button>`;
         })
         .join("\n");
 };

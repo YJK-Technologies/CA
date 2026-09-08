@@ -1,87 +1,140 @@
-body {
+/* Layout Shell Base */
+html, body {
+  height: 100vh;
   margin: 0;
   padding: 0;
-  font-family: Arial, sans-serif;
+  overflow: hidden;
 }
 
-.App {
-  text-align: center;
-}
-
-.App-logo {
-  height: 40vmin;
-  pointer-events: none;
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .App-logo {
-    animation: App-logo-spin infinite 20s linear;
-  }
-}
-
-.App-header {
-  background-color: #282c34;
-  min-height: 100vh;
+.app-shell {
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  font-size: calc(10px + 2vmin);
-  color: white;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
 }
 
-.App-link {
-  color: #61dafb;
-}
-
-@keyframes App-logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-body, html {
-  height: 100%;
-  margin: 0;
-}
-
+/* =========================================================
+   DESKTOP SIDEBAR STYLES (Default / min-width: 769px)
+   ========================================================= */
 .sidebar {
   width: 220px;
-  min-height: 100vh;
-  transition: width 0.3s;
+  height: 100vh;
+  transition: width 0.3s ease-in-out;
+  overflow-y: auto;
   overflow-x: hidden;
+  flex-shrink: 0;
+  position: relative;
+  /* z-index: 100; */
 }
 
 .sidebar.closed {
   width: 60px;
 }
 
-.sidebar ul li {
+.main-content {
+  flex: 1;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
+  z-index: 1; /* Main content clicks are isolated */
+}
+
+/* Sidebar Elements Styling */
+.sidebar-link {
+  display: flex;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  color: inherit;
+  text-decoration: none;
+  width: 100%;
   cursor: pointer;
-  transition: background 0.2s;
 }
 
-.sidebar ul li:hover {
-  background-color: #343a40;
-}
-
-.sidebar-header h5 {
-  font-size: 1.2rem;
-  white-space: nowrap;
-}
-
-.sidebar.closed .sidebar-header {
+.sidebar-icon {
+  display: flex;
+  align-items: center;
   justify-content: center;
+  font-size: 1.2rem;
+  min-width: 24px;
 }
 
 .sidebar.closed ul li {
   justify-content: center;
-  padding-left: 0.75rem;
 }
 
-.sidebar.closed ul li span {
+.sidebar.closed .sidebar-link {
+  justify-content: center;
+  padding: 0.75rem 0;
+}
+
+.sidebar.closed .sidebar-label {
   display: none;
+}
+
+/* Desktop-il Overlay irukkaadhu */
+.sidebar-overlay {
+  display: none;
+}
+
+/* =========================================================
+   MOBILE RESPONSIVE STYLES (max-width: 768px ONLY)
+   ========================================================= */
+@media (max-width: 768px) {
+  .sidebar-overlay {
+    display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 1040;
+  }
+
+  .sidebar {
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    height: 100vh;
+    width: 240px !important;
+    transform: translateX(-100%);
+    z-index: 1050 !important;
+  }
+
+  .sidebar.open {
+    transform: translateX(0) !important;
+    box-shadow: 4px 0 20px rgba(0, 0, 0, 0.5);
+  }
+
+  .sidebar.closed {
+    transform: translateX(-100%) !important;
+  }
+}
+
+/* Ensure the text inside select containers is visible on white backgrounds */
+.react-select__single-value,
+.react-select__placeholder,
+.react-select__input-container,
+.react-select__multi-value__label {
+  color: #212529 !important;
+}
+
+/* Fix for standard HTML select or custom multi-select wrappers */
+.card .form-select,
+.card input,
+.card select {
+  color: #212529 !important;
+  background-color: #ffffff !important;
+}
+
+/* AG Grid custom cell dropdown text fix */
+.ag-theme-alpine .ag-cell select,
+.ag-theme-alpine .ag-cell .react-select__control {
+  color: #212529 !important;
+}
+
+.ag-theme-alpine .ag-cell .react-select__placeholder {
+  color: #6c757d !important;
 }
