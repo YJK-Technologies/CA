@@ -1,126 +1,41 @@
 import { safeFieldName } from "./helpers";
 
-export const renderInputControl = (col, type, size = 3) => {
-
-   const fieldName = safeFieldName(col.fieldName);
-
-   const label = `
-<label className="form-label fw-semibold">
-   ${col.fieldName}
-</label>`;
+export const renderInputControl = (col, type, size = 3, indentLevel = 10) => {
+   const pad = " ".repeat(indentLevel);
+   const label = `<label className="form-label fw-semibold">${col.fieldName}</label>`;
 
    switch ((type || "").toUpperCase()) {
-
       case "TEXT":
-         return `
-<div className="col-md-${size}">
-   ${label}
-
-   <input
-      className="form-control"
-      placeholder="Enter ${col.fieldName}"
-   />
-</div>`;
+         return `${pad}<div className="col-md-${size}">\n${pad}  ${label}\n${pad}  <input className="form-control" placeholder="Enter ${col.fieldName}" />\n${pad}</div>`;
 
       case "DROPDOWN":
-         return `
-<div className="col-md-${size}">
-   ${label}
-
-   <Select
-      options={[]}
-      placeholder="Select ${col.fieldName}"
-   />
-</div>`;
+         return `${pad}<div className="col-md-${size}">\n${pad}  ${label}\n${pad}  <Select options={[]} placeholder="Select ${col.fieldName}" />\n${pad}</div>`;
 
       case "DATE":
-         return `
-<div className="col-md-${size}">
-   ${label}
-
-   <input
-      type="date"
-      className="form-control"
-   />
-</div>`;
+         return `${pad}<div className="col-md-${size}">\n${pad}  ${label}\n${pad}  <input type="date" className="form-control" />\n${pad}</div>`;
 
       case "NUMBER":
-         return `
-<div className="col-md-${size}">
-   ${label}
-
-   <input
-      type="number"
-      className="form-control"
-      onKeyDown={(e) => {
-         if (["e", "E", "+", "-"].includes(e.key)) {
-            e.preventDefault();
-         }
-      }}
-   />
-</div>`;
+         return `${pad}<div className="col-md-${size}">\n${pad}  ${label}\n${pad}  <input type="number" className="form-control" onKeyDown={(e) => { if (["e", "E", "+", "-"].includes(e.key)) e.preventDefault(); }} />\n${pad}</div>`;
 
       case "TEXT AREA":
-         return `
-<div className="col-md-${size}">
-   ${label}
-
-   <textarea className="form-control"></textarea>
-</div>`;
+         return `${pad}<div className="col-md-${size}">\n${pad}  ${label}\n${pad}  <textarea className="form-control"></textarea>\n${pad}</div>`;
 
       case "TOGGLE":
-         return `
-<div className="col-md-${size}">
-   ${label}
+         return `${pad}<div className="col-md-${size}">\n${pad}  ${label}\n${pad}  <div className="form-check form-switch d-flex align-items-center" style={{ minHeight: "38px" }}>\n${pad}    <input className="form-check-input" type="checkbox" role="switch" />\n${pad}  </div>\n${pad}</div>`;
 
-   <div
-      className="form-check form-switch d-flex align-items-center"
-      style={{ minHeight: "38px" }}
-   >
-      <input
-         className="form-check-input"
-         type="checkbox"
-         role="switch"
-      />
-   </div>
-</div>`;
-
-      case "FILE":
-
+      case "FILE": {
          let acceptType = "*";
-
          switch ((col.fileType || "").toUpperCase()) {
-
-            case "IMAGE":
-               acceptType = "image/*";
-               break;
-
-            case "VIDEO":
-               acceptType = "video/*";
-               break;
-
-            case "AUDIO":
-               acceptType = "audio/*";
-               break;
-
-            case "FILE":
-               acceptType =
-                  ".pdf,.doc,.docx,.xls,.xlsx,.txt,.zip";
-               break;
-
-            default:
-               acceptType = "*";
+            case "IMAGE": acceptType = "image/*"; break;
+            case "VIDEO": acceptType = "video/*"; break;
+            case "AUDIO": acceptType = "audio/*"; break;
+            case "FILE": acceptType = ".pdf,.doc,.docx,.xls,.xlsx,.txt,.zip"; break;
+            default: acceptType = "*";
          }
+         return `${pad}<div className="col-md-${size}">\n${pad}  ${label}\n${pad}  <input type="file" className="form-control" accept="${acceptType}" />\n${pad}</div>`;
+      }
 
-         return `
-<div className="col-md-${size}">
-   ${label}
-
-   <input
-      type="file"
-      className="form-control"
-      accept="${acceptType}"
-   />
-</div>`;
+      default:
+         return `${pad}<div className="col-md-${size}">\n${pad}  ${label}\n${pad}  <input className="form-control" placeholder="Enter ${col.fieldName}" />\n${pad}</div>`;
    }
 };

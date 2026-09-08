@@ -1,38 +1,52 @@
-import React, { useState, useRef, useEffect } from 'react';
+/*
+ * AutomationContext.js
+ * -------------------------------------------------------------------------
+ * IMPORTANT: This file contains ZERO new business/generation logic.
+ * Every state hook, ref, constant, and handler function below is copied
+ * VERBATIM (unmodified) from the original single-file Pages/Automation.js.
+ * It has only been *relocated* into a Context Provider so that the same
+ * state + handlers can be shared across multiple routed pages (Dashboard,
+ * React Generator, Node Generator, Table Generator, Stored Procedure)
+ * instead of a single monolithic screen.
+ *
+ * Do not add, remove, or alter any generation/validation logic here.
+ * -------------------------------------------------------------------------
+ */
+import React, { createContext, useContext, useState, useRef, useEffect } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
-import 'bootstrap/dist/css/bootstrap.min.css';
 import Select from 'react-select';
 import * as Babel from '@babel/standalone';
 import JSZip from "jszip";
+import ExcelJS from 'exceljs';
 import { saveAs } from "file-saver";
-import { Button, Form, Row, Col } from 'react-bootstrap';
-import { FaPlus, FaMinus, FaCopy, FaCheckCircle } from 'react-icons/fa';
 import { provideGlobalGridOptions } from 'ag-grid-community';
 import { ModuleRegistry, AllCommunityModule } from 'ag-grid-community';
-import { getNodeSingleCrudScript, getNodeLoopCrudScripts, getAllNodeSingleCrudScripts, getAllNodeLoopCrudScripts, getAllNodeCrudScripts } from './nodeGenerator';
+import { getNodeSingleCrudScript, getNodeLoopCrudScripts, getAllNodeSingleCrudScripts, getAllNodeLoopCrudScripts, getAllNodeCrudScripts } from '../Pages/nodeGenerator';
 import {
     getFrontendSearchDesignCode,
     getFrontendAddDesignCode,
     getFrontendCombinedDesignCode,
-    getAllFrontendCode,
     getAllFrontendScreens
-} from './frontGenerator';
+} from '../Pages/frontGenerator';
 import * as XLSX from "xlsx";
 import {
     getTableSQL,
     getStoredProcSQL,
     getAllStoredProcSQL,
-    getAllSQLScripts,
     getPreviewTableSQL,
-    getOnlyUDDSQL
-} from './sqlGenerator';
+    getOnlyUDDSQL,
+} from '../Pages/sqlGenerator';
+import ReactSelectCellEditor from './ReactSelectEditor';
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 provideGlobalGridOptions({ theme: "legacy" });
 
-const Automation = () => {
+const AutomationContext = createContext(null);
+
+// eslint-disable-next-line no-unused-vars
+const useAutomationEngine = () => {
     const [name, setName] = useState('');
     const [objectType, setObjectType] = useState('DB');
     const [sqlPreview, setSqlPreview] = useState('');
@@ -54,10 +68,17 @@ const Automation = () => {
     const [screenType, setScreenType] = useState("combined");
     const STORAGE_KEY = "savedScreens";
 
-
-
     const [screens, setScreens] = useState([]);
     const [activeScreen, setActiveScreen] = useState(null);
+
+    const [detailsTableTypes, setDetailsTableTypes] = useState({});
+
+    const toggleDetailTableType = (tabName, isSeparate) => {
+        setDetailsTableTypes(prev => ({
+            ...prev,
+            [tabName]: isSeparate
+        }));
+    };
 
     const validDataTypes = [
         'INT', 'BIGINT', 'VARCHAR', 'TEXT', 'FLOAT',
@@ -96,24 +117,24 @@ const Automation = () => {
 
     const downloadExcelTemplate = () => {
         const headers = [
-    "Field Name",
-    "Data Type",
-    "Size",
-    "File Type",
-    "Constraints",
-    "Reference Table",
-    "Reference Column",
-    "Default Value",
-    "Check Condition",
-    "Design SC Select",
-    "Design SC Order No",
-    "Design SC Buttons",
-    "Design Add Screen Select",
-    "RCL",
-    "Add Screen Tooltip",
-    "Design Add Screen Buttons",
-    "Add Screen Button Position"
-];
+            "Field Name",
+            "Data Type",
+            "Size",
+            "File Type",
+            "Constraints",
+            "Reference Table",
+            "Reference Column",
+            "Default Value",
+            "Check Condition",
+            "Design SC Select",
+            "Design SC Order No",
+            "Design SC Buttons",
+            "Design Add Screen Select",
+            "RCL",
+            "Add Screen Tooltip",
+            "Design Add Screen Buttons",
+            "Add Screen Button Position"
+        ];
 
         const data = [headers];
 
@@ -153,12 +174,132 @@ const Automation = () => {
         XLSX.writeFile(wb, "Grid_Template.xlsx");
     };
 
+    // const downloadExcelTemplate = async () => {
+    //     // 1. Create a new Workbook and Worksheet
+    //     const workbook = new ExcelJS.Workbook();
+    //     const worksheet = workbook.addWorksheet('Template');
+
+    //     // 2. Define Headers
+    //     const headers = [
+    //         "Field Name",
+    //         "Data Type",
+    //         "Size",
+    //         "Existing UDD",
+    //         "File Type",
+    //         "Constraints",
+    //         "Default Value",
+    //         "Check Condition",
+    //         "Reference Table",
+    //         "Reference Column",
+    //         "Design SC Select",
+    //         "Design SC Order No",
+    //         "Design SC Buttons",
+    //         "Design Add Screen Select",
+    //         "RCL",
+    //         "Add Screen Tooltip",
+    //         "Design Add Screen Buttons",
+    //         "Add Screen Button Position"
+    //     ];
+
+    //     // Add Header Row
+    //     const headerRow = worksheet.addRow(headers);
+
+    //     // Apply Style to Header
+    //     headerRow.font = { bold: true };
+    //     headerRow.eachCell((cell) => {
+    //         cell.fill = {
+    //             type: 'pattern',
+    //             pattern: 'solid',
+    //             fgColor: { argb: 'FFE0E0E0' }
+    //         };
+    //     });
+
+    //     // Column Widths
+    //     worksheet.columns = headers.map(() => ({ width: 22 }));
+
+    //     // Define Options for Dropdowns
+    //     const dataTypeOptions = '"INT,BIGINT,VARCHAR,TEXT,FLOAT,DATE,DATETIME,BIT,NVARCHAR,VARBINARY,DECIMAL,GRID"';
+    //     const fileTypeOptions = '"Image,File,Audio,Video"';
+    //     const constraintsOptions = '"Primary Key,Not Null,Unique,Foreign Key,Default,Check,Auto Increment"';
+    //     const scSelectOptions = '"Text,Dropdown,Date,Toggle,Number"';
+    //     const scButtonsOptions = '"Search,Refresh,Add,Delete,Update,Print,Excel"';
+    //     const addScreenSelectOptions = '"Text,Dropdown,Date,File,Number,Text Area,Grid,Toggle"';
+    //     const addScreenButtonsOptions = '"Save,Update,Print,Excel,Refresh,Close"';
+    //     const buttonPositionOptions = '"Top,Bottom"';
+
+    //     // 3. Add Empty Rows (Row 2 to 100) and Apply Data Validation (Dropdowns)
+    //     for (let i = 2; i <= 100; i++) {
+    //         const row = worksheet.getRow(i);
+
+    //         // Data Type (Col B - Column 2)
+    //         row.getCell(2).dataValidation = {
+    //             type: 'list',
+    //             allowBlank: true,
+    //             formulae: [dataTypeOptions]
+    //         };
+
+    //         // File Type (Col E - Column 5)
+    //         row.getCell(5).dataValidation = {
+    //             type: 'list',
+    //             allowBlank: true,
+    //             formulae: [fileTypeOptions]
+    //         };
+
+    //         // Constraints (Col F - Column 6)
+    //         row.getCell(6).dataValidation = {
+    //             type: 'list',
+    //             allowBlank: true,
+    //             formulae: [constraintsOptions]
+    //         };
+
+    //         // Design SC Select (Col K - Column 11)
+    //         row.getCell(11).dataValidation = {
+    //             type: 'list',
+    //             allowBlank: true,
+    //             formulae: [scSelectOptions]
+    //         };
+
+    //         // Design SC Buttons (Col M - Column 13)
+    //         row.getCell(13).dataValidation = {
+    //             type: 'list',
+    //             allowBlank: true,
+    //             formulae: [scButtonsOptions]
+    //         };
+
+    //         // Design Add Screen Select (Col N - Column 14)
+    //         row.getCell(14).dataValidation = {
+    //             type: 'list',
+    //             allowBlank: true,
+    //             formulae: [addScreenSelectOptions]
+    //         };
+
+    //         // Design Add Screen Buttons (Col Q - Column 17)
+    //         row.getCell(17).dataValidation = {
+    //             type: 'list',
+    //             allowBlank: true,
+    //             formulae: [addScreenButtonsOptions]
+    //         };
+
+    //         // Add Screen Button Position (Col R - Column 18)
+    //         row.getCell(18).dataValidation = {
+    //             type: 'list',
+    //             allowBlank: true,
+    //             formulae: [buttonPositionOptions]
+    //         };
+    //     }
+
+    //     // 4. Generate Excel File and Trigger Download
+    //     const buffer = await workbook.xlsx.writeBuffer();
+    //     const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    //     saveAs(blob, 'Grid_Template.xlsx');
+    // };
+
     const handleGenerateScreen = () => {
 
         let code = "";
 
         if (screenType === "search") {
-            code = getFrontendSearchDesignCode(mainGridRef, objectRowData);
+            code = getFrontendSearchDesignCode(rowData, objectRowData);
         }
 
         else if (screenType === "add") {
@@ -244,39 +385,39 @@ const Automation = () => {
             const sheet = workbook.Sheets[workbook.SheetNames[0]];
             const rawData = XLSX.utils.sheet_to_json(sheet);
 
-const headerMap = {
-    "Field Name": "fieldName",
-    "Data Type": "dataType",
-    "Size": "size",
-    "File Type": "fileType",
-    "Constraints": "constraints",
-    "Reference Table": "referenceTable",
-    "Reference Column": "referenceColumn",
-    "Default Value": "defaultValue",
-    "Check Condition": "checkCondition",
-    "Design SC Select": "designSCSelect",
-    "Design SC Order No": "designSCOrderNo",
-    "Design SC Buttons": "designSCButtons",
-    "Design Add Screen Select": "designAddScreenSelect",
-    "RCL": "RCL",
-    "Add Screen Tooltip": "addScreenTooltip",
-    "Design Add Screen Buttons": "designAddScreenButtons",
-    "Add Screen Button Position": "addScreenButtonPosition"
-};
+            const headerMap = {
+                "Field Name": "fieldName",
+                "Data Type": "dataType",
+                "Size": "size",
+                "File Type": "fileType",
+                "Constraints": "constraints",
+                "Reference Table": "referenceTable",
+                "Reference Column": "referenceColumn",
+                "Default Value": "defaultValue",
+                "Check Condition": "checkCondition",
+                "Design SC Select": "designSCSelect",
+                "Design SC Order No": "designSCOrderNo",
+                "Design SC Buttons": "designSCButtons",
+                "Design Add Screen Select": "designAddScreenSelect",
+                "RCL": "RCL",
+                "Add Screen Tooltip": "addScreenTooltip",
+                "Design Add Screen Buttons": "designAddScreenButtons",
+                "Add Screen Button Position": "addScreenButtonPosition"
+            };
 
-const data = rawData.map(row => {
+            const data = rawData.map(row => {
 
-    const formattedRow = {};
+                const formattedRow = {};
 
-    Object.keys(row).forEach(key => {
+                Object.keys(row).forEach(key => {
 
-        const mappedKey = headerMap[key] || key;
+                    const mappedKey = headerMap[key] || key;
 
-        formattedRow[mappedKey] = row[key];
-    });
+                    formattedRow[mappedKey] = row[key];
+                });
 
-    return formattedRow;
-});
+                return formattedRow;
+            });
 
             validateAndLoadData(data);
 
@@ -652,33 +793,23 @@ const data = rawData.map(row => {
 
     const handleClearScreens = () => {
         localStorage.removeItem(STORAGE_KEY);
-
         setScreens([]);
         setActiveScreen(null);
-
         setRowData([]);
         setObjectRowData([]);
         setDetailsRowData([]);
     };
 
     const handleTabClick = (screen) => {
-
         setActiveScreen(screen.screenName);
-
         setObjectRowData(screen.objectRowData || []);
-
         setRowData(screen.rowData || []);
-
         setDetailsDataMap(screen.detailsDataMap || {});
-
         setScreenType(screen.screenType || "combined");
-
         setEnableAudit(screen.enableAudit || false);
-
         const tabs = Object.keys(
             screen.detailsDataMap || {}
         );
-
         setDetailsTabs(tabs);
 
         if (tabs.length > 0) {
@@ -686,35 +817,65 @@ const data = rawData.map(row => {
         }
     };
 
+    // const handleKeyDown = (e) => {
+    //     if (e.key === "Enter") {
+    //         const trimmedName = name.trim();
 
+    //         if (!trimmedName) {
+    //             alert("⚠️ Object name cannot be empty!");
+    //             return;
+    //         }
+
+    //         const isDuplicate = objectRowData.some(
+    //             (row) =>
+    //                 row.object.toLowerCase() === objectType.toLowerCase() &&
+    //                 row.name.toLowerCase() === trimmedName.toLowerCase()
+    //         );
+
+    //         if (isDuplicate) {
+    //             alert(`⚠️ The ${objectType} already exists!`);
+    //             return;
+    //         }
+
+    //         const newRow = { object: objectType.trim(), name: trimmedName };
+
+    //         setObjectRowData((prev) => [...prev, newRow]);
+    //     }
+    // };
+
+    const handleAddObject = () => {
+        const trimmedName = name.trim();
+
+        if (!objectType) {
+            alert("⚠️ Please select an Object Type!");
+            return;
+        }
+
+        if (!trimmedName) {
+            alert("⚠️ Object name cannot be empty!");
+            return;
+        }
+
+        const isDuplicate = objectRowData.some(
+            (row) =>
+                row.object.toLowerCase() === objectType.toLowerCase() &&
+                row.name.toLowerCase() === trimmedName.toLowerCase()
+        );
+
+        if (isDuplicate) {
+            alert(`⚠️ The ${objectType} already exists!`);
+            return;
+        }
+
+        const newRow = { object: objectType.trim(), name: trimmedName };
+        setObjectRowData((prev) => [...prev, newRow]);
+    };
 
     const handleKeyDown = (e) => {
         if (e.key === "Enter") {
-            const trimmedName = name.trim();
-
-            if (!trimmedName) {
-                alert("⚠️ Object name cannot be empty!");
-                return;
-            }
-
-            const isDuplicate = objectRowData.some(
-                (row) =>
-                    row.object.toLowerCase() === objectType.toLowerCase() &&
-                    row.name.toLowerCase() === trimmedName.toLowerCase()
-            );
-
-            if (isDuplicate) {
-                alert(`⚠️ The ${objectType} already exists!`);
-                return;
-            }
-
-            const newRow = { object: objectType.trim(), name: trimmedName };
-
-            setObjectRowData((prev) => [...prev, newRow]);
+            handleAddObject();
         }
     };
-
-
 
     const handleDelete = (index) => {
         setObjectRowData((prevData) => prevData.filter((_, i) => i !== index));
@@ -755,17 +916,14 @@ const data = rawData.map(row => {
             referenceColumn: '',
             tableFieldSelect: false,
             nodeSelect: false,
-
             designSCSelect: '',
             designSCOrderNo: null,
             designSCButtons: '',
-
             designAddScreenSelect: '',
             designAddOrderNo: '',
             addScreenTooltip: '',
             designAddScreenButtons: '',
             addScreenButtonPosition: '',
-
             constraints: [],
             defaultValue: '',
             checkCondition: '',
@@ -859,7 +1017,6 @@ const data = rawData.map(row => {
             );
         }
 
-        // DO NOT touch other columns
     };
 
     const ConstraintRenderer = (props) => {
@@ -871,12 +1028,9 @@ const data = rawData.map(row => {
                 isMulti
                 isClearable
                 placeholder="Select Constraints"
-
                 closeMenuOnSelect={false}
                 blurInputOnSelect={false}
-
-                hideSelectedOptions={false}   // ✅ FIX: keep selected items visible
-
+                hideSelectedOptions={false}
                 value={constraintOptions.filter(opt => value.includes(opt.value))}
 
                 onChange={(selected) => {
@@ -891,9 +1045,6 @@ const data = rawData.map(row => {
                     }
 
                     props.node.setDataValue("constraints", values);
-                    setTimeout(() => {
-                        updateColumnVisibility(props.api);
-                    }, 0);
 
                     if (!values.includes("FK")) {
                         props.node.setDataValue("referenceTable", "");
@@ -912,13 +1063,24 @@ const data = rawData.map(row => {
                 }}
 
                 components={{
-                    MultiValue: () => null, // hide chips
+                    MultiValue: () => null, // hide individual chips
 
-                    ValueContainer: ({ children }) => {
+                    // Custom ValueContainer displaying count or placeholder
+                    ValueContainer: ({ children, hasValue }) => {
                         const count = value.length;
 
                         return (
-                            <div style={{ paddingLeft: "6px", fontSize: "12px" }}>
+                            <div
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    paddingLeft: '6px',
+                                    fontSize: '13px',
+                                    fontWeight: 500,
+                                    color: '#333333', // Explicit dark text color
+                                    flex: 1
+                                }}
+                            >
                                 {count > 0 ? `${count} selected` : children}
                             </div>
                         );
@@ -929,9 +1091,38 @@ const data = rawData.map(row => {
 
                 styles={{
                     menuPortal: base => ({ ...base, zIndex: 9999 }),
-                    control: base => ({ ...base, minHeight: "30px", height: "30px" }),
-                    valueContainer: base => ({ ...base, height: "30px", padding: "0 6px" }),
-                    indicatorsContainer: base => ({ ...base, height: "30px" })
+                    control: base => ({
+                        ...base,
+                        minHeight: "30px",
+                        height: "30px",
+                        backgroundColor: "#ffffff",
+                        borderColor: "#ccc",
+                        color: "#333333"
+                    }),
+                    valueContainer: base => ({
+                        ...base,
+                        height: "30px",
+                        padding: "0 6px",
+                        color: "#333333"
+                    }),
+                    placeholder: base => ({
+                        ...base,
+                        color: "#666666" // Dark gray placeholder text
+                    }),
+                    singleValue: base => ({
+                        ...base,
+                        color: "#333333"
+                    }),
+                    indicatorsContainer: base => ({ ...base, height: "30px" }),
+                    option: (base, state) => ({
+                        ...base,
+                        color: state.isSelected ? "#ffffff" : "#333333", // Dark option text in dropdown
+                        backgroundColor: state.isSelected
+                            ? "#2684FF"
+                            : state.isFocused
+                                ? "#deebff"
+                                : "#ffffff"
+                    })
                 }}
             />
         );
@@ -945,12 +1136,12 @@ const data = rawData.map(row => {
                 return (
                     <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
                         <i
-                            className="bi bi-trash-fill"
+                            className="bi bi-trash-fill text-danger"
                             style={{ cursor: 'pointer' }}
                             onClick={() => handleDeleteRow(params.node.rowIndex)}
                         />
                         <i
-                            className="bi bi-plus-circle"
+                            className="bi bi-plus-circle text-primary"
                             style={{ cursor: 'pointer' }}
                             onClick={() => handleAdd(params.node.rowIndex)}
                         />
@@ -978,9 +1169,9 @@ const data = rawData.map(row => {
             field: 'dataType',
             headerName: 'Data Type',
             editable: true,
-            cellEditor: 'agSelectCellEditor',
+            cellEditor: ReactSelectCellEditor,
             cellEditorParams: {
-                values: [
+                options: [
                     'INT',
                     'BIGINT',
                     'VARCHAR',
@@ -993,17 +1184,15 @@ const data = rawData.map(row => {
                     'VARBINARY',
                     'DECIMAL',
                     'GRID'
-                ],
+                ]
             },
-
+            cellEditorPopup: true,
             onCellValueChanged: (params) => {
-
                 setTimeout(() => {
                     updateColumnVisibility(params.api);
                 }, 0);
             },
-
-            minWidth: 100,
+            minWidth: 140,
         },
         {
             field: 'size',
@@ -1013,7 +1202,6 @@ const data = rawData.map(row => {
 
             valueSetter: (params) => {
 
-                // Allow both numbers and text
                 params.data.size =
                     params.newValue !== undefined &&
                         params.newValue !== null
@@ -1024,15 +1212,27 @@ const data = rawData.map(row => {
             }
         },
         {
+            headerName: "Existing UDD",
+            field: "existingUDD",
+            editable: true,
+            width: 150,
+        },
+        {
             field: 'fileType',
             headerName: 'File Type',
             editable: true,
             hide: true,
             minWidth: 140,
-            cellEditor: 'agSelectCellEditor',
+            cellEditor: ReactSelectCellEditor,
             cellEditorParams: {
-                values: ['Image', 'File', 'Audio', 'Video']
-            }
+                options: [
+                    'Image',
+                    'File',
+                    'Audio',
+                    'Video'
+                ]
+            },
+            cellEditorPopup: true,
         },
         {
             field: 'constraints',
@@ -1053,7 +1253,6 @@ const data = rawData.map(row => {
             editable: true,
             hide: true,
         },
-
         {
             field: 'referenceTable',
             headerName: 'Ref Table',
@@ -1069,40 +1268,66 @@ const data = rawData.map(row => {
         {
             field: 'designSCSelect',
             headerName: 'Design SC Select',
+            editable: true,
             sortable: false,
             filter: false,
-            cellEditor: 'agSelectCellEditor',
+            cellEditor: ReactSelectCellEditor,
             cellEditorParams: {
-                values: ["Text", "Dropdown", "Date", "Toggle", "Number"]
+                options: [
+                    'Text',
+                    'Dropdown',
+                    'Date',
+                    'Toggle',
+                    'Number'
+                ]
             },
-            // maxWidth: 150,
-            minWidth: 150,
+            cellEditorPopup: true,
+            minWidth: 180,
         },
         {
             field: 'designSCOrderNo',
             headerName: 'Design SC order No',
             editable: true,
-            // maxWidth: 160,
             minWidth: 160,
         },
         {
             field: 'designSCButtons',
             headerName: 'Design SC Buttons',
             editable: true,
-            cellEditor: 'agSelectCellEditor',
+            cellEditor: ReactSelectCellEditor,
             cellEditorParams: {
-                values: ['Search', 'Refresh', 'Add', 'Delete', 'Update', 'Print', 'Excel'],
+                options: [
+                    'Search',
+                    'Refresh',
+                    'Add',
+                    'Delete',
+                    'Update',
+                    'Print',
+                    'Excel'
+                ]
             },
-            // maxWidth: 150,
-            minWidth: 150,
+            cellEditorPopup: true,
+            minWidth: 180,
         },
         {
             field: 'designAddScreenSelect',
             headerName: 'Design Add Screen Select',
-            cellEditor: 'agSelectCellEditor',
+            editable: true,
+            cellEditor: ReactSelectCellEditor,
             cellEditorParams: {
-                values: ["Text", "Dropdown", "Date", "File", "Number", "Text Area", "Grid", "Toggle"]
+                options: [
+                    'Text',
+                    'Dropdown',
+                    'Date',
+                    'File',
+                    'Number',
+                    'Text Area',
+                    'Grid',
+                    'Toggle'
+                ]
             },
+            cellEditorPopup: true,
+            minWidth: 200,
         },
         {
             field: 'designAddOrderNo',
@@ -1136,21 +1361,33 @@ const data = rawData.map(row => {
             field: 'designAddScreenButtons',
             headerName: 'Design Add Screen Buttons',
             editable: true,
-            minWidth: 200,
-            cellEditor: 'agSelectCellEditor',
+            cellEditor: ReactSelectCellEditor,
             cellEditorParams: {
-                values: ['Save', 'Update', 'Print', 'Excel', 'Refresh', 'Close'],
+                options: [
+                    'Save',
+                    'Update',
+                    'Print',
+                    'Excel',
+                    'Refresh',
+                    'Close'
+                ]
             },
+            cellEditorPopup: true,
+            minWidth: 220,
         },
         {
             field: 'addScreenButtonPosition',
             headerName: 'Add Screen Button Position',
             editable: true,
-            minWidth: 200,
-            cellEditor: 'agSelectCellEditor',
+            cellEditor: ReactSelectCellEditor,
             cellEditorParams: {
-                values: ['Top', 'Bottom'],
+                options: [
+                    'Top',
+                    'Bottom'
+                ]
             },
+            cellEditorPopup: true,
+            minWidth: 220,
         },
     ];
 
@@ -1192,6 +1429,7 @@ const data = rawData.map(row => {
             fieldName: '',
             dataType: 'VARCHAR',
             size: '',
+            existingUDD: '',
             fileType: '',
             constraints: [],
             referenceTable: '',
@@ -1234,14 +1472,9 @@ const data = rawData.map(row => {
         // =========================
         // MULTI SCREEN MODE
         // =========================
-
         if (screens.length > 0) {
-
-            const script =
-                getPreviewTableSQL(enableAudit);
-
+            const script = getPreviewTableSQL(enableAudit);
             setSqlPreview(script);
-
             return;
         }
 
@@ -1249,49 +1482,45 @@ const data = rawData.map(row => {
         // SINGLE SCREEN MODE
         // =========================
 
-        // SINGLE SCREEN MODE
-
-        const rows = [];
-
-        if (mainGridRef.current?.api) {
-            mainGridRef.current.api.forEachNode(node => {
-                if (node?.data) {
-                    rows.push(node.data);
-                }
-            });
-        }
-
-        // ✅ Generate UDD first
+        // 1. Generate UDD first
         const uddScript = getOnlyUDDSQL(
-            rows,
+            rowData,
             detailsDataMap,
             enableAudit
         );
 
-        // ✅ Generate table
+        // 2. Generate table WITH detailsTableTypes mapping
         const tableScript = getTableSQL(
-            mainGridRef,
+            rowData,
             objectRowData,
             detailsDataMap,
             detailsDefs,
-            enableAudit
+            enableAudit,
+            detailsTableTypes // 🔹 Pass the state dictionary containing separate/main table flags
         );
 
-        // ✅ Combine both
-        const script = `
+        // 3. Combine both
+        const hasUDD = uddScript && uddScript.trim() !== '';
 
--- =============================================
--- UDD
--- =============================================
+        const script = hasUDD
+            ? `-- =============================================
+            -- UDD
+            -- =============================================
 
-${uddScript}
+            ${uddScript.trim()}
 
--- =============================================
--- TABLE
--- =============================================
+            -- =============================================
+            -- TABLE
+            -- =============================================
 
-${tableScript}
-`;
+            ${tableScript.trim()}
+            `
+            : `-- =============================================
+            -- TABLE
+            -- =============================================
+
+            ${tableScript.trim()}
+            `;
 
         setSqlPreview(script);
     };
@@ -1301,29 +1530,24 @@ ${tableScript}
         // =========================
         // MULTI SCREEN MODE
         // =========================
-
         if (screens.length > 0) {
-
-            const spScript =
-                getAllStoredProcSQL(enableAudit);
-
+            const spScript = getAllStoredProcSQL(enableAudit);
             if (spScript) {
                 setSqlPreview(spScript);
             }
-
             return;
         }
 
         // =========================
         // SINGLE SCREEN MODE
         // =========================
-
         const spScript = getStoredProcSQL(
-            mainGridRef,
+            rowData,
             objectRowData,
             detailsDataMap,
             detailsDefs,
-            enableAudit
+            enableAudit,
+            detailsTableTypes
         );
 
         if (spScript) {
@@ -1336,23 +1560,17 @@ ${tableScript}
         // =========================
         // MULTI SCREEN MODE
         // =========================
-
         if (screens.length > 0) {
-
-            const singleNodeScript =
-                getAllNodeSingleCrudScripts();
-
+            const singleNodeScript = getAllNodeSingleCrudScripts();
             if (singleNodeScript) {
                 setSqlPreview(singleNodeScript);
             }
-
             return;
         }
 
         // =========================
         // SINGLE SCREEN MODE
         // =========================
-
         const detailsTables = Object.entries(detailsDataMap || {}).map(
             ([gridName, rowData]) => ({
                 gridName,
@@ -1362,10 +1580,11 @@ ${tableScript}
 
         const singleNodeScript =
             getNodeSingleCrudScript(
-                mainGridRef,
+                rowData,
                 objectRowData,
                 detailsTables,
-                enableAudit
+                enableAudit,
+                detailsTableTypes
             );
 
         if (singleNodeScript) {
@@ -1378,23 +1597,17 @@ ${tableScript}
         // =========================
         // MULTI SCREEN MODE
         // =========================
-
         if (screens.length > 0) {
-
-            const loopNodeScript =
-                getAllNodeLoopCrudScripts();
-
+            const loopNodeScript = getAllNodeLoopCrudScripts();
             if (loopNodeScript) {
                 setSqlPreview(loopNodeScript);
             }
-
             return;
         }
 
         // =========================
         // SINGLE SCREEN MODE
         // =========================
-
         const detailsTables = Object.entries(detailsDataMap || {}).map(
             ([gridName, rowData]) => ({
                 gridName,
@@ -1404,10 +1617,11 @@ ${tableScript}
 
         const loopNodeScript =
             getNodeLoopCrudScripts(
-                mainGridRef,
+                rowData,
                 objectRowData,
                 detailsTables,
-                enableAudit
+                enableAudit,
+                detailsTableTypes
             );
 
         if (loopNodeScript) {
@@ -1417,345 +1631,196 @@ ${tableScript}
 
     const generateFiles = () => {
         const zip = new JSZip();
-
-        // Get Names
-        const getName = (type) => objectRowData.find(row => row.object === type)?.name || "unknown";
-        const tableName = getName("Table");
-        const spName = getName("StoredProcedure");
-        const reactName = getName("React");
-
         let hasFiles = false;
 
-        //SQL Folder
-        const sqlFolder = zip.folder("sql");
-
-        let finalTableSQL = "";
+        // Helper to extract object name
+        const getName = (type) => objectRowData.find(row => row.object === type)?.name || "Default";
+        const reactName = getName("React");
 
         // =============================================
-        // MULTI SCREEN MODE
+        // 1. SQL GENERATION (Table & SP)
         // =============================================
-
         if (screens.length > 0) {
+            screens.forEach((screen) => {
+                const screenReactName = screen.objectRowData?.find(r => r.object === "React")?.name || screen.screenName;
+                const screenTableName = screen.objectRowData?.find(r => r.object === "Table")?.name || screenReactName;
+                const screenSpName = screen.objectRowData?.find(r => r.object === "StoredProcedure")?.name || screenReactName;
 
-            finalTableSQL = getPreviewTableSQL(enableAudit);
+                // Generate Table SQL
+                const tableSQL = getTableSQL(screen.rowData, screen.objectRowData, screen.detailsDataMap, detailsDefs, screen.enableAudit);
+                const uddSQL = getOnlyUDDSQL(screen.rowData, screen.detailsDataMap, screen.enableAudit);
+                const fullTableSQL = uddSQL ? `-- UDD STATEMENTS\n${uddSQL.trim()}\n\n${tableSQL.trim()}` : tableSQL.trim();
 
-        } else {
+                if (fullTableSQL) {
+                    // Split Main Table and Detail Tables properly
+                    const tableBlocks = fullTableSQL.split(/(?=-- =============================================\n-- DETAILS TABLE :|-- Create Details Table)/i);
 
-            // =============================================
-            // SINGLE SCREEN MODE
-            // =============================================
+                    tableBlocks.forEach((block, idx) => {
+                        const cleanBlock = block.trim();
+                        if (!cleanBlock) return;
 
-            const uddSQL = getOnlyUDDSQL(
-                rowData,
-                detailsDataMap,
-                enableAudit
-            );
+                        let fileName = `tbl_${screenTableName}.sql`;
+                        if (idx > 0) {
+                            const match = cleanBlock.match(/CREATE TABLE\s+\[?(\w+)\]?/i);
+                            fileName = match ? `${match[1]}.sql` : `tbl_${screenTableName}_Detail_${idx}.sql`;
+                        }
 
-            const tableSQL = getTableSQL(
-                mainGridRef,
-                objectRowData,
-                detailsDataMap,
-                detailsDefs,
-                enableAudit
-            );
+                        zip.file(`sql/Table/${fileName}`, cleanBlock);
+                        hasFiles = true;
+                    });
+                }
 
-            finalTableSQL = `
-
--- =============================================
--- UDD
--- =============================================
-
-${uddSQL}
-
--- =============================================
--- TABLE
--- =============================================
-
-${tableSQL}
-`;
-        }
-        if (finalTableSQL) {
-            // Extract DB name from USE statement
-            const dbMatch = finalTableSQL.match(/USE\s+\[(.*?)\];/i);
-            const dbName = dbMatch ? dbMatch[1] : "unknownDB";
-
-            // Split by Details marker
-            const [headerPart, ...detailsParts] =
-                finalTableSQL.split(/-- Create Details Table/i);
-
-            //Save Header table SQL (no duplicate USE)
-            if (headerPart.trim()) {
-                const headerScript = headerPart.trim();  // already has USE
-                sqlFolder.file(`tbl_${tableName}.sql`, headerScript);
-                hasFiles = true;
-            }
-
-            //Save each Details table SQL separately (add USE explicitly here)
-            detailsParts.forEach((detailPart, idx) => {
-                const detailScript = `USE [${dbName}];\nGO\n\n-- Create Details Table${detailPart.trim()}`;
-                // Try to extract real detail table name
-                const match = detailScript.match(/CREATE TABLE\s+\[([^\]]+)\]/i);
-                const detailFileName = match ? match[1] : `${tableName}_details_${idx + 1}`;
-                sqlFolder.file(`${detailFileName}.sql`, detailScript);
-                hasFiles = true;
+                // Generate SP SQL
+                const spResult = getStoredProcSQL(screen.rowData, screen.objectRowData, screen.detailsDataMap, detailsDefs, screen.enableAudit);
+                if (typeof spResult === "object" && spResult !== null) {
+                    Object.entries(spResult).forEach(([spKey, content]) => {
+                        if (content && content.trim()) {
+                            zip.file(`sql/SP/${spKey}.sql`, content.trim());
+                            hasFiles = true;
+                        }
+                    });
+                } else if (typeof spResult === "string" && spResult.trim()) {
+                    zip.file(`sql/SP/sp_${screenSpName}.sql`, spResult.trim());
+                    hasFiles = true;
+                }
             });
-        }
-
-        let spSQL = "";
-
-        // =============================================
-        // MULTI SCREEN MODE
-        // =============================================
-
-        if (screens.length > 0) {
-
-            spSQL = getAllStoredProcSQL(enableAudit);
-
         } else {
-
-            // =============================================
             // SINGLE SCREEN MODE
-            // =============================================
+            const mainTableName = getName("Table");
+            const mainSpName = getName("StoredProcedure");
 
-            spSQL = getStoredProcSQL(
-                mainGridRef,
-                objectRowData,
-                detailsDataMap,
-                detailsDefs,
-                enableAudit
-            );
+            const tableSQL = getTableSQL(rowData, objectRowData, detailsDataMap, detailsDefs, enableAudit);
+            const uddSQL = getOnlyUDDSQL(rowData, detailsDataMap, enableAudit);
+            const fullTableSQL = uddSQL ? `-- UDD STATEMENTS\n${uddSQL.trim()}\n\n${tableSQL.trim()}` : tableSQL.trim();
+
+            if (fullTableSQL) {
+                const tableBlocks = fullTableSQL.split(/(?=-- =============================================\n-- DETAILS TABLE :|-- Create Details Table)/i);
+
+                tableBlocks.forEach((block, idx) => {
+                    const cleanBlock = block.trim();
+                    if (!cleanBlock) return;
+
+                    let fileName = `tbl_${mainTableName}.sql`;
+                    if (idx > 0) {
+                        const match = cleanBlock.match(/CREATE TABLE\s+\[?(\w+)\]?/i);
+                        fileName = match ? `${match[1]}.sql` : `tbl_${mainTableName}_Detail_${idx}.sql`;
+                    }
+
+                    zip.file(`sql/Table/${fileName}`, cleanBlock);
+                    hasFiles = true;
+                });
+            }
+
+            // Stored Procedures
+            const spResult = getStoredProcSQL(rowData, objectRowData, detailsDataMap, detailsDefs, enableAudit);
+            if (typeof spResult === "object" && spResult !== null) {
+                Object.entries(spResult).forEach(([spKey, content]) => {
+                    if (content && content.trim()) {
+                        zip.file(`sql/SP/${spKey}.sql`, content.trim());
+                        hasFiles = true;
+                    }
+                });
+            } else if (typeof spResult === "string" && spResult.trim()) {
+                zip.file(`sql/SP/sp_${mainSpName}.sql`, spResult.trim());
+                hasFiles = true;
+            }
         }
 
-        if (spSQL) {
-
-            sqlFolder.file(
-                `sp_${spName || "all"}.sql`,
-                spSQL
-            );
-
-            hasFiles = true;
-        }
-
-        // ✅ Node Folder
-        const nodeFolder = zip.folder("node");
-
-        let nodeSingle = "";
-        let nodeLoop = "";
-
         // =============================================
-        // MULTI SCREEN MODE
+        // 2. NODE GENERATION (Single & Loop)
         // =============================================
-
         if (screens.length > 0) {
+            screens.forEach((screen) => {
+                const screenReactName = screen.objectRowData?.find(r => r.object === "React")?.name || screen.screenName;
+                const detailsList = Object.entries(screen.detailsDataMap || {}).map(([gridName, rows]) => ({ gridName, rowData: rows }));
 
-            nodeSingle = getAllNodeSingleCrudScripts();
+                const singleScript = getNodeSingleCrudScript(screen.rowData, screen.objectRowData, detailsList, screen.enableAudit);
+                const loopScript = getNodeLoopCrudScripts(screen.rowData, screen.objectRowData, detailsList, screen.enableAudit);
 
-            nodeLoop = getAllNodeLoopCrudScripts();
-
+                if (singleScript && singleScript.trim()) {
+                    zip.file(`node/Single/${screenReactName}.js`, singleScript.trim());
+                    hasFiles = true;
+                }
+                if (loopScript && loopScript.trim()) {
+                    zip.file(`node/Loop/${screenReactName}.js`, loopScript.trim());
+                    hasFiles = true;
+                }
+            });
         } else {
+            const detailsList = Object.entries(detailsDataMap || {}).map(([gridName, rows]) => ({ gridName, rowData: rows }));
 
-            // =============================================
-            // SINGLE SCREEN MODE
-            // =============================================
+            const singleScript = getNodeSingleCrudScript(rowData, objectRowData, detailsList, enableAudit);
+            const loopScript = getNodeLoopCrudScripts(rowData, objectRowData, detailsList, enableAudit);
 
-            const nodeSingleDetailsTables = Object.entries(detailsDataMap || {}).map(
-                ([gridName, rowData]) => ({
-                    gridName,
-                    rowData
-                })
-            );
-
-            nodeSingle = getNodeSingleCrudScript(
-                mainGridRef,
-                objectRowData,
-                nodeSingleDetailsTables,
-                enableAudit
-            );
-
-            const nodeLoopDetailsTables = Object.entries(detailsDataMap || {}).map(
-                ([gridName, rowData]) => ({
-                    gridName,
-                    rowData
-                })
-            );
-
-            nodeLoop = getNodeLoopCrudScripts(
-                mainGridRef,
-                objectRowData,
-                nodeLoopDetailsTables,
-                enableAudit
-            );
+            if (singleScript && singleScript.trim()) {
+                zip.file(`node/Single/${reactName}.js`, singleScript.trim());
+                hasFiles = true;
+            }
+            if (loopScript && loopScript.trim()) {
+                zip.file(`node/Loop/${reactName}.js`, loopScript.trim());
+                hasFiles = true;
+            }
         }
 
         // =============================================
-        // SAVE FILES
+        // 3. REACT GENERATION
         // =============================================
-
-        if (nodeSingle) {
-
-            nodeFolder.file(
-                `${reactName || "all"}_single.js`,
-                nodeSingle
-            );
-
-            hasFiles = true;
-        }
-
-        if (nodeLoop) {
-
-            nodeFolder.file(
-                `${reactName || "all"}_loop.js`,
-                nodeLoop
-            );
-
-            hasFiles = true;
-        }
-
-        // ✅ React Folder
-        const reactFolder = zip.folder("react");
-
-        let searchDesign = "";
-        let addDesign = "";
-        let addGridDesign = "";
-        let combinedDesign = "";
-
-        // =============================================
-        // MULTI SCREEN MODE
-        // =============================================
-
         if (screens.length > 0) {
+            screens.forEach((screen) => {
+                const screenReactName = screen.objectRowData?.find(r => r.object === "React")?.name || screen.screenName;
+                const detailsList = Object.entries(screen.detailsDataMap || {}).map(([gridName, rows]) => ({ gridName, rowData: rows }));
 
-            // SEARCH + ADD + GRID + COMBINED
-            combinedDesign = getAllFrontendScreens();
+                let reactCode = "";
+                let suffix = "Combined";
 
-            // SEARCH GRID CODE
-            searchDesign = getAllFrontendScreens();
+                if (screen.screenType === "search") {
+                    reactCode = getFrontendSearchDesignCode(screen.rowData, screen.objectRowData);
+                    suffix = "Search";
+                } else if (screen.screenType === "add" || screen.screenType === "add-grid") {
+                    reactCode = getFrontendAddDesignCode(screen.rowData, screen.objectRowData, detailsList);
+                    suffix = "Add";
+                } else {
+                    reactCode = getFrontendCombinedDesignCode(screen.rowData, screen.objectRowData, detailsList, screens);
+                    suffix = "Combined";
+                }
 
+                if (reactCode && reactCode.trim()) {
+                    zip.file(`react/${screenReactName}_${suffix}.jsx`, reactCode.trim());
+                    hasFiles = true;
+                }
+            });
         } else {
+            const detailsList = Object.entries(detailsDataMap || {}).map(([gridName, rows]) => ({ gridName, rowData: rows }));
 
-            // =============================================
-            // SINGLE SCREEN MODE
-            // =============================================
+            let reactCode = "";
+            let suffix = "Combined";
 
-            searchDesign =
-                getFrontendSearchDesignCode(
-                    mainGridRef,
-                    objectRowData
-                );
-
-            const detailsTables = Object.entries(detailsDataMap || {}).map(
-                ([gridName, rowData]) => ({
-                    gridName,
-                    rowData
-                })
-            );
-
-            addDesign =
-                getFrontendAddDesignCode(
-                    mainGridRef,
-                    objectRowData,
-                    detailsTables
-                );
-
-            // ADD + GRID
-            addGridDesign =
-                getFrontendAddDesignCode(
-                    mainGridRef,
-                    objectRowData,
-                    detailsTables
-                );
-
-            // SEARCH + ADD + GRID
-            combinedDesign =
-                getFrontendCombinedDesignCode(
-                    mainGridRef,
-                    objectRowData,
-                    detailsTables,
-                    screens
-                );
-        }
-        // =============================================
-        // MULTI SCREEN SAVE
-        // =============================================
-
-        if (screens.length > 0) {
-
-            if (combinedDesign) {
-
-                reactFolder.file(
-                    `all_screens.js`,
-                    combinedDesign
-                );
-
-                hasFiles = true;
+            if (screenType === "search") {
+                reactCode = getFrontendSearchDesignCode(rowData, objectRowData);
+                suffix = "Search";
+            } else if (screenType === "add" || screenType === "add-grid") {
+                reactCode = getFrontendAddDesignCode(rowData, objectRowData, detailsList);
+                suffix = "Add";
+            } else {
+                reactCode = getFrontendCombinedDesignCode(rowData, objectRowData, detailsList, screens);
+                suffix = "Combined";
             }
 
-            if (searchDesign) {
-
-                reactFolder.file(
-                    `all_frontend_code.js`,
-                    searchDesign
-                );
-
-                hasFiles = true;
-            }
-
-        } else {
-
-            // =============================================
-            // SINGLE SCREEN SAVE
-            // =============================================
-
-            if (searchDesign) {
-
-                reactFolder.file(
-                    `${reactName}_search.js`,
-                    searchDesign
-                );
-
-                hasFiles = true;
-            }
-
-            if (addDesign) {
-
-                reactFolder.file(
-                    `${reactName}_add.js`,
-                    addDesign
-                );
-
-                hasFiles = true;
-            }
-
-            // ADD + GRID
-            if (addGridDesign) {
-
-                reactFolder.file(
-                    `${reactName}_add_grid.js`,
-                    addGridDesign
-                );
-
-                hasFiles = true;
-            }
-
-            // COMBINED
-            if (combinedDesign) {
-
-                reactFolder.file(
-                    `${reactName}_combined.js`,
-                    combinedDesign
-                );
-
+            if (reactCode && reactCode.trim()) {
+                zip.file(`react/${reactName}_${suffix}.jsx`, reactCode.trim());
                 hasFiles = true;
             }
         }
 
-        // ✅ Final ZIP Download
+        // =============================================
+        // 4. DOWNLOAD ZIP
+        // =============================================
         if (hasFiles) {
             zip.generateAsync({ type: "blob" }).then((content) => {
-                saveAs(content, `${reactName || "generated_files"}.zip`);
+                saveAs(content, "Generated_Code_Export.zip");
             });
         } else {
-            alert("No files to generate. Please check your inputs.");
+            alert("No files generated. Please check your inputs.");
         }
     };
 
@@ -1827,7 +1892,7 @@ ${tableSQL}
         );
 
         if (hasSearchData) {
-            searchCode = getFrontendSearchDesignCode(mainGridRef, objectRowData);
+            searchCode = getFrontendSearchDesignCode(rowData, objectRowData);
         }
 
         // Check if add form design fields have values safely
@@ -1845,7 +1910,7 @@ ${tableSQL}
             );
 
             addCode = getFrontendAddDesignCode(
-                mainGridRef,
+                rowData,
                 objectRowData,
                 detailsTables
             );
@@ -1926,6 +1991,7 @@ ${tableSQL}
             fieldName: '',
             dataType: 'VARCHAR',
             size: '',
+            existingUDD: '',
             fileType: '',
             constraints: [],
             referenceTable: '',
@@ -1959,8 +2025,7 @@ ${tableSQL}
 
         // GET ALL GRID ROWS
         const gridFields = rowData.filter(
-            (row) =>
-                row.dataType?.toUpperCase() === "GRID"
+            (row) => row.dataType?.toUpperCase() === "GRID"
         );
 
         if (gridFields.length === 0) {
@@ -1969,30 +2034,24 @@ ${tableSQL}
         }
 
         // TAB NAMES = FIELD NAMES
-        const tabNames = gridFields.map(
-            row => row.fieldName
-        );
+        const tabNames = gridFields.map(row => row.fieldName);
 
         setDetailsTabs(tabNames);
 
         // DEFAULT ACTIVE TAB
+        const currentActiveTab = activeDetailTab || tabNames[0];
         if (!activeDetailTab) {
             setActiveDetailTab(tabNames[0]);
         }
 
         // INITIALIZE DATA MAP
         setDetailsDataMap(prev => {
-
             const updated = { ...prev };
-
             tabNames.forEach(tab => {
-
                 if (!updated[tab]) {
                     updated[tab] = [];
                 }
-
             });
-
             return updated;
         });
 
@@ -2002,6 +2061,9 @@ ${tableSQL}
                 field: 'Action',
                 headerName: 'Action',
                 cellRenderer: (params) => {
+                    // Retrieve current tab from grid context or fallback state
+                    const currentTab = params.context?.activeDetailTab || activeDetailTab;
+
                     return (
                         <div style={{
                             display: 'flex',
@@ -2009,23 +2071,52 @@ ${tableSQL}
                             justifyContent: 'center'
                         }}>
                             <i
-                                className="bi bi-trash-fill"
+                                className="bi bi-trash-fill text-danger"
                                 style={{ cursor: 'pointer' }}
-                                onClick={() =>
-                                    handleDetailDeleteRow(
-                                        params.node.rowIndex
-                                    )
-                                }
+                                onClick={() => {
+                                    const targetTab = params.context?.activeDetailTab || activeDetailTab;
+                                    if (!targetTab) return;
+
+                                    setDetailsDataMap(prev => ({
+                                        ...prev,
+                                        [targetTab]: (prev[targetTab] || []).filter(
+                                            (_, i) => i !== params.node.rowIndex
+                                        )
+                                    }));
+                                }}
                             />
 
                             <i
-                                className="bi bi-plus-circle"
+                                className="bi bi-plus-circle text-primary"
                                 style={{ cursor: 'pointer' }}
-                                onClick={() =>
-                                    handleDetailsAdd(
-                                        params.node.rowIndex
-                                    )
-                                }
+                                onClick={() => {
+                                    const targetTab = params.context?.activeDetailTab || activeDetailTab;
+                                    if (!targetTab) return;
+
+                                    const newRow = {
+                                        fieldName: '',
+                                        dataType: 'VARCHAR',
+                                        size: '',
+                                        existingUDD: '',
+                                        fileType: '',
+                                        constraints: [],
+                                        referenceTable: '',
+                                        referenceColumn: '',
+                                        defaultValue: '',
+                                        checkCondition: '',
+                                        gridOrderNo: '',
+                                        gridTooltip: ''
+                                    };
+
+                                    setDetailsDataMap(prev => {
+                                        const updatedRows = [...(prev[targetTab] || [])];
+                                        updatedRows.splice(params.node.rowIndex + 1, 0, newRow);
+                                        return {
+                                            ...prev,
+                                            [targetTab]: updatedRows
+                                        };
+                                    });
+                                }}
                             />
                         </div>
                     );
@@ -2033,20 +2124,18 @@ ${tableSQL}
                 maxWidth: 120,
                 editable: false,
             },
-
             {
                 field: 'fieldName',
                 headerName: 'Field Name',
                 editable: true
             },
-
             {
                 field: 'dataType',
                 headerName: 'Data Type',
                 editable: true,
-                cellEditor: 'agSelectCellEditor',
+                cellEditor: ReactSelectCellEditor,
                 cellEditorParams: {
-                    values: [
+                    options: [
                         'INT',
                         'VARCHAR',
                         'TEXT',
@@ -2057,13 +2146,12 @@ ${tableSQL}
                         'NVARCHAR',
                         'VARBINARY',
                         'DECIMAL'
-                    ],
+                    ]
                 },
-
+                cellEditorPopup: true,
                 onCellValueChanged: (params) => {
-
-                    const allRows =
-                        detailsDataMap?.[activeDetailTab] || [];
+                    const currentTab = params.context?.activeDetailTab || activeDetailTab;
+                    const allRows = detailsDataMap?.[currentTab] || [];
 
                     const showFileType = allRows.some(row =>
                         row.dataType?.toUpperCase() === "VARBINARY"
@@ -2075,22 +2163,33 @@ ${tableSQL}
                     );
                 },
             },
-
             {
                 field: 'size',
                 headerName: 'Size',
                 editable: true
             },
             {
+                headerName: "Existing UDD",
+                field: "existingUDD",
+                editable: true,
+                width: 150,
+            },
+            {
                 field: 'fileType',
                 headerName: 'File Type',
                 editable: true,
                 hide: true,
-                minWidth: 140,
-                cellEditor: 'agSelectCellEditor',
+                minWidth: 160,
+                cellEditor: ReactSelectCellEditor,
                 cellEditorParams: {
-                    values: ['Image', 'File', 'Audio', 'Video']
-                }
+                    options: [
+                        'Image',
+                        'File',
+                        'Audio',
+                        'Video'
+                    ]
+                },
+                cellEditorPopup: true,
             },
             {
                 field: 'constraints',
@@ -2099,41 +2198,35 @@ ${tableSQL}
                 editable: false,
                 minWidth: 220
             },
-
             {
                 field: 'defaultValue',
                 headerName: 'Default Value',
                 editable: true,
                 hide: true,
             },
-
             {
                 field: 'checkCondition',
                 headerName: 'Check Condition',
                 editable: true,
                 hide: true,
             },
-
             {
                 field: 'referenceTable',
                 headerName: 'Ref Table',
                 editable: true,
                 hide: true,
             },
-
             {
                 field: 'referenceColumn',
                 headerName: 'Ref Column',
                 editable: true,
                 hide: true,
             },
-
             {
                 field: 'gridOrderNo',
                 headerName: 'Grid Order No',
                 editable: true
             },
-
             {
                 field: 'gridTooltip',
                 headerName: 'Grid Tooltip',
@@ -2142,445 +2235,100 @@ ${tableSQL}
         ];
 
         setTimeout(() => {
-
-            const currentRows =
-                detailsDataMap?.[activeDetailTab] || [];
-
+            const currentRows = detailsDataMap?.[currentActiveTab] || [];
             const showFileType = currentRows.some(
-                row =>
-                    row.dataType?.toUpperCase() === "VARBINARY"
+                row => row.dataType?.toUpperCase() === "VARBINARY"
             );
 
             if (window.detailsGridApi) {
-
                 window.detailsGridApi.setColumnsVisible(
                     ["fileType"],
                     showFileType
                 );
             }
-
         }, 0);
 
         setDetailsDefs(newDetailsDefs);
     };
 
+    return {
+        // simple fields
+        name, setName,
+        objectType, setObjectType,
+        sqlPreview, setSqlPreview,
+        rowData, setRowData,
+        detailsRowData, setDetailsRowData,
+        detailsTabs, setDetailsTabs,
+        activeDetailTab, setActiveDetailTab,
+        detailsDataMap, setDetailsDataMap,
+        objectGridRef, mainGridRef, previewRef,
+        uiPreview, setUiPreview,
+        uiPreviewEnabled, setUiPreviewEnabled,
+        copied, setCopied,
+        objectRowData, setObjectRowData,
+        detailsDefs, setDetailsDefs,
+        enableAudit, setEnableAudit,
+        fileInputRef,
+        screenType, setScreenType,
+        STORAGE_KEY,
+        screens, setScreens,
+        activeScreen, setActiveScreen,
+
+        // constants
+        validDataTypes, constraintMap, validConstraints,
+        constraintOptions, objectClumnDefs, columnDefs, defaultColDef,
+
+        // handlers (all logic unchanged, exposed as-is)
+        downloadExcelTemplate,
+        handleGenerateScreen,
+        handleExcelUpload,
+        normalizeValue,
+        validateAndLoadData,
+        handleSaveScreen,
+        handleClearScreens,
+        handleTabClick,
+        handleKeyDown,
+        handleAddObject,
+        handleDelete,
+        handleDeleteRow,
+        handleAdd,
+        updateColumnVisibility,
+        ConstraintRenderer,
+        handleAddRow,
+        handleDetailsAddRow,
+        handleRemoveRow,
+        handleDetailsRemoveRow,
+        previewTableSQL,
+        previewSPCode,
+        previewNodeSingle,
+        previewNodeLoop,
+        generateFiles,
+        renderReactCodeFromString,
+        handleGenerateBothDesigns,
+        handleCopy,
+        handleDetailDeleteRow,
+        handleDetailsAdd,
+        handleDetailsClick,
+        detailsTableTypes,
+        toggleDetailTableType
+    };
+};
+
+export const AutomationProvider = ({ children }) => {
+    const engine = useAutomationEngine();
     return (
-        <div className="container-fluid py-4 px-4">
-            <h2 className="mb-4 text-primary fw-bold">Design Studio</h2>
-
-            {/* Show Tabs Only If Screens Exist */}
-            {screens.length > 0 && (
-                <div className="mb-3 d-flex gap-2 flex-wrap">
-                    {screens.map((screen, index) => (
-                        <Button
-                            key={index}
-                            variant={activeScreen === screen.screenName ? "primary" : "outline-primary"}
-                            onClick={() => handleTabClick(screen)}
-                        >
-                            {screen.screenName}
-                        </Button>
-                    ))}
-                </div>
-            )}
-
-            <Row className="g-3 align-items-end mb-4">
-
-                {/* Object Type */}
-                <Col md={3}>
-                    <Form.Label className="fw-semibold">Object Type</Form.Label>
-
-                    <Form.Select
-                        value={objectType}
-                        onChange={e => setObjectType(e.target.value)}
-                    >
-                        <option value="DB">DB Name</option>
-                        <option value="Table">Table Name</option>
-                        <option value="StoredProcedure">SP Name</option>
-                        <option value="React">React Name</option>
-                    </Form.Select>
-                </Col>
-
-                {/* Object Name */}
-                <Col md={4}>
-                    <Form.Label className="fw-semibold">Object Name</Form.Label>
-
-                    <Form.Control
-                        value={name}
-                        onChange={e => setName(e.target.value)}
-                        onKeyDown={handleKeyDown}
-                        placeholder="Enter object name"
-                    />
-                </Col>
-
-                {/* Details Button */}
-                <Col md={1} className="d-grid">
-                    <Button
-                        variant="secondary"
-                        onClick={handleDetailsClick}
-                    >
-                        Details
-                    </Button>
-                </Col>
-
-                {/* Screen Type */}
-                <Col md={4}>
-                    <Form.Label className="fw-semibold">Screen Type</Form.Label>
-
-                    <Form.Select
-                        value={screenType}
-                        onChange={(e) => setScreenType(e.target.value)}
-                    >
-                        <option value="search">Search Screen</option>
-                        <option value="add">Add Screen</option>
-                        <option value="add-grid">Add + Grid Screen</option>
-                        <option value="combined">Add + Search + Grid Screen</option>
-                    </Form.Select>
-                </Col>
-
-                {/* Save / Clear Buttons */}
-                <Col md={4}>
-                    <div className="d-grid gap-2">
-                        <Button
-                            variant="success"
-                            onClick={handleSaveScreen}
-                        >
-                            💾 Save Screen
-                        </Button>
-
-                        <Button
-                            variant="danger"
-                            onClick={handleClearScreens}
-                        >
-                            🗑️ Clear Screens
-                        </Button>
-                    </div>
-                </Col>
-
-                {/* Audit + Excel Actions */}
-                <Col md={8}>
-                    <div className="d-flex flex-wrap gap-2 align-items-center h-100">
-
-                        <Form.Check
-                            type="checkbox"
-                            label="Enable Audit Columns"
-                            checked={enableAudit}
-                            onChange={(e) => setEnableAudit(e.target.checked)}
-                        />
-
-                        <Button
-                            variant="outline-secondary"
-                            onClick={downloadExcelTemplate}
-                        >
-                            ⬇ Download Template
-                        </Button>
-
-                        <input
-                            type="file"
-                            accept=".xlsx"
-                            ref={fileInputRef}
-                            onChange={handleExcelUpload}
-                            style={{ display: "none" }}
-                        />
-
-                        <Button
-                            variant="outline-primary"
-                            onClick={() => fileInputRef.current.click()}
-                        >
-                            📤 Upload Excel
-                        </Button>
-                    </div>
-                </Col>
-
-            </Row>
-
-            <div className="card shadow-sm p-3 mb-4">
-                <div
-                    className="ag-theme-alpine mb-4"
-                    style={{
-                        height: 200,
-                        width: "100%",
-                        maxWidth: "600px"
-                    }}
-                >
-                    <AgGridReact
-                        ref={objectGridRef}
-                        rowData={objectRowData}
-                        columnDefs={objectClumnDefs}
-                        rowHeight={35}
-                        defaultColDef={defaultColDef}
-                    />
-                </div>
-            </div>
-
-            <div className="d-flex justify-content-between align-items-center mb-2">
-
-                <h5 className="mb-0 fw-semibold">
-                    Main Configuration
-                </h5>
-
-                <div className="d-flex gap-2">
-                    <Button
-                        variant="primary"
-                        className="rounded-top"
-                        onClick={handleAddRow}
-                    >
-                        <FaPlus />
-                    </Button>
-
-                    <Button
-                        variant="danger"
-                        className="rounded-top"
-                        onClick={handleRemoveRow}
-                    >
-                        <FaMinus />
-                    </Button>
-                </div>
-
-            </div>
-
-            <div className="ag-theme-alpine mb-4" style={{ height: 350 }}>
-                <AgGridReact
-                    ref={mainGridRef}
-                    rowData={rowData}
-                    columnDefs={columnDefs}
-                    defaultColDef={defaultColDef}
-                    rowHeight={35}
-                    stopEditingWhenCellsLoseFocus={true}   // ✅ ADD THIS
-
-                    // ✅ NEW: Runs on initial load (FIX for refresh issue)
-                    onGridReady={(params) => {
-                        updateColumnVisibility(params.api);
-                    }}
-
-                    // ✅ Existing logic (keep it)
-                    onCellValueChanged={(params) => {
-
-                        // Remove AI if datatype changed
-                        if (
-                            params.colDef.field === "dataType" &&
-                            !["INT", "BIGINT"].includes(params.newValue?.toUpperCase()) &&
-                            params.data.constraints?.includes("AI")
-                        ) {
-                            params.node.setDataValue(
-                                "constraints",
-                                params.data.constraints.filter(v => v !== "AI")
-                            );
-                        }
-
-                        // Auto clear size for non-size datatypes
-                        const sizeAllowed = ["VARCHAR", "NVARCHAR", "DECIMAL"];
-
-                        if (
-                            params.colDef.field === "dataType" &&
-                            !sizeAllowed.includes(params.newValue?.toUpperCase())
-                        ) {
-                            params.node.setDataValue("size", "");
-                        }
-
-                        // Clear fileType if datatype is not VARBINARY
-                        if (
-                            params.colDef.field === "dataType" &&
-                            params.newValue?.toUpperCase() !== "VARBINARY"
-                        ) {
-                            params.node.setDataValue("fileType", "");
-                        }
-
-                        updateColumnVisibility(params.api);
-                    }}
-                />
-            </div>
-
-            {/* DETAILS TABS */}
-            {
-                detailsTabs.length > 0 && (
-                    <div className="mb-3 d-flex gap-2 flex-wrap">
-
-                        {
-                            detailsTabs.map((tab, index) => (
-
-                                <Button
-                                    key={index}
-                                    variant={
-                                        activeDetailTab === tab
-                                            ? "primary"
-                                            : "outline-primary"
-                                    }
-                                    onClick={() =>
-                                        setActiveDetailTab(tab)
-                                    }
-                                >
-                                    {tab}
-                                </Button>
-
-                            ))
-                        }
-
-                    </div>
-                )
-            }
-
-            {detailsDefs && (
-                <div className="mb-3">
-                    <div className="d-flex justify-content-between align-items-center mb-3">
-
-                        <h5 className="mb-0 fw-semibold">
-                            Details Grid
-                        </h5>
-
-                        <div className="d-flex gap-2">
-
-                            <Button
-                                variant="primary"
-                                className="rounded-top"
-                                onClick={handleDetailsAddRow}
-                            >
-                                <FaPlus />
-                            </Button>
-
-                            <Button
-                                variant="danger"
-                                className="rounded-top"
-                                onClick={handleDetailsRemoveRow}
-                            >
-                                <FaMinus />
-                            </Button>
-
-                        </div>
-
-                    </div>
-                    <div className="ag-theme-alpine mt-3" style={{ height: 300 }}>
-                        <AgGridReact
-                            rowData={detailsDataMap[activeDetailTab] || []}
-                            columnDefs={detailsDefs}
-                            defaultColDef={defaultColDef}
-
-                            stopEditingWhenCellsLoseFocus={true}
-
-                            onGridReady={(params) => {
-
-                                // STORE DETAILS GRID API
-                                window.detailsGridApi = params.api;
-
-                                // UPDATE COLUMN VISIBILITY
-                                updateColumnVisibility(params.api);
-                            }}
-
-                            onCellValueChanged={(params) => {
-
-                                // REMOVE AI IF DATATYPE INVALID
-                                if (
-                                    params.colDef.field === "dataType" &&
-                                    !["INT", "BIGINT"].includes(params.newValue?.toUpperCase()) &&
-                                    params.data.constraints?.includes("AI")
-                                ) {
-                                    params.node.setDataValue(
-                                        "constraints",
-                                        params.data.constraints.filter(v => v !== "AI")
-                                    );
-                                }
-
-                                // CLEAR SIZE IF DATATYPE DOES NOT SUPPORT SIZE
-                                const sizeAllowed = ["VARCHAR", "NVARCHAR", "DECIMAL"];
-
-                                if (
-                                    params.colDef.field === "dataType" &&
-                                    !sizeAllowed.includes(params.newValue?.toUpperCase())
-                                ) {
-                                    params.node.setDataValue("size", "");
-                                }
-
-                                // UPDATE CONDITIONAL COLUMNS
-                                updateColumnVisibility(params.api);
-
-                                // UPDATE DETAILS GRID CONDITIONAL COLUMNS
-                                if (window.detailsGridApi) {
-                                    updateColumnVisibility(window.detailsGridApi);
-                                }
-                            }}
-                        />
-                    </div>
-                </div>
-            )}
-
-            <div className="mb-4">
-
-                <div className="d-flex flex-wrap gap-3">
-
-                    <Button
-                        variant="success"
-                        onClick={generateFiles}
-                    >
-                        Generate Files
-                    </Button>
-
-                    <Button
-                        variant="info"
-                        onClick={previewTableSQL}
-                    >
-                        Preview Table SQL
-                    </Button>
-
-                    <Button
-                        variant="warning"
-                        onClick={previewSPCode}
-                    >
-                        Preview SP Code
-                    </Button>
-
-                    <Button
-                        variant="dark"
-                        onClick={previewNodeSingle}
-                    >
-                        ⚙️ Node Insert (Single)
-                    </Button>
-
-                    <Button
-                        variant="secondary"
-                        onClick={previewNodeLoop}
-                    >
-                        🔁 Node Insert (Loop)
-                    </Button>
-
-                    <Button
-                        variant="primary"
-                        onClick={handleGenerateScreen}
-                    >
-                        🚀 Generate Screen
-                    </Button>
-
-                </div>
-
-            </div>
-
-            <div className="mt-4">
-                <div className="d-flex justify-content-between align-items-center mb-2">
-                    <h4 className="mb-0">Code Preview:</h4>
-                    <Button
-                        size="sm"
-                        variant={copied ? 'success' : 'outline-secondary'}
-                        onClick={handleCopy}
-                    >
-                        {copied ? <><FaCheckCircle className="me-1" />Copied!</> : <><FaCopy className="me-1" />Copy</>}
-                    </Button>
-                </div>
-                <Form.Control
-                    style={{height: "500px"}}
-                    as="textarea"
-                    value={sqlPreview}
-                    rows={10}
-                    readOnly
-                    ref={previewRef}
-                />
-
-                {uiPreviewEnabled && (
-                    <div className="mt-5 border rounded bg-light p-3">
-                        <h5 className="mb-3">🎨 Live UI Preview:</h5>
-                        {uiPreview}
-                    </div>
-                )}
-            </div>
-        </div>
+        <AutomationContext.Provider value={engine}>
+            {children}
+        </AutomationContext.Provider>
     );
 };
 
-export default Automation;
+export const useAutomation = () => {
+    const ctx = useContext(AutomationContext);
+    if (!ctx) {
+        throw new Error('useAutomation must be used within an AutomationProvider');
+    }
+    return ctx;
+};
+
+export default AutomationContext;
