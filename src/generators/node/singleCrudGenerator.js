@@ -1,7 +1,6 @@
 import { getValidRows } from "../shared/helpers";
 import { getSqlType } from "./sqlTypeHelper";
 
-// Helper function to check numeric data types
 const isNumericType = (dataType) => {
     if (!dataType) return false;
     const numTypes = [
@@ -12,25 +11,30 @@ const isNumericType = (dataType) => {
     return numTypes.includes(dataType.toUpperCase());
 };
 
-// ================= SINGLE CRUD =================
+const formatIdentifier = (str) => {
+    if (!str) return "";
+    return str.replace(/[^a-zA-C0-9_$]/gi, "_").replace(/_+/g, "_");
+};
+
+const formatProcedureName = (str) => {
+    if (!str) return "";
+    return str.replace(/\s+/g, "_");
+};
+
 export const getNodeSingleCrudScript = (
-    gridRef,
+    rows,
     objectRowData,
     detailsTables = [],
-    enableAudit = false
+    enableAudit = false,
+    detailsTableTypes = {} // 🔹 Track toggle state: true = Separate Table, false = Part of Main Table
 ) => {
+    const rawName = objectRowData.find(row => row.object === 'React')?.name;
 
-    const rows = [];
-    if (!gridRef.current || !gridRef.current.api) return "";
+    if (!rawName || rows.length === 0) return "";
 
-    gridRef.current.api.forEachNode(node => rows.push(node.data));
-
-    const name = objectRowData.find(row => row.object === 'React')?.name;
-
-    if (!name || rows.length === 0) return "";
-
+    const cleanName = formatIdentifier(rawName);
     const validRows = getValidRows(rows);
-    const procName = `sp_${name}`;
+    const procName = formatProcedureName(`sp_${rawName}`);
 
     const hasConstraint = (constraints, types = []) => {
         if (!constraints) return false;
@@ -38,39 +42,56 @@ export const getNodeSingleCrudScript = (
         return types.some(type => normalized.includes(type.toUpperCase()));
     };
 
-    // ---------- COMMON BUILDER ----------
-    const buildNodeCrud = (funcName, procName, contentRows) => {
+    const buildNodeCrud = (funcName, spProcName, contentRows) => {
+        const paramRows = contentRows.filter(col => col.dataType?.toUpperCase() !== "GRID");
 
-        const paramRows = contentRows.filter(col => {
-            if (col.dataType?.toUpperCase() === "GRID") return false;
-            return true;
-        });
-
-        // Primary Key Detection
-        const primaryKeyCol =
+        // PK detection
+        let primaryKeyCol =
             paramRows.find(col => hasConstraint(col.constraints, ["PK", "PRIMARY KEY"])) ||
-            paramRows.find(col => hasConstraint(col.constraints, ["AI", "IDENTITY"])) ||
-            paramRows[0];
+            paramRows.find(col => hasConstraint(col.constraints, ["AI", "IDENTITY"]));
+
+        if (!primaryKeyCol) {
+            const hasFKOrNotNull = paramRows.some(col => 
+                hasConstraint(col.constraints, ["FK", "FOREIGN KEY", "NOT NULL"])
+            );
+
+            if (!hasFKOrNotNull) {
+                const explicitIdCol = paramRows.find(col => (col.fieldName || '').toLowerCase() === 'id');
+                primaryKeyCol = explicitIdCol || { fieldName: "id", dataType: "INT", isDefaultFallback: true };
+            }
+        }
+
+        const deleteKeyCols = paramRows.filter(col => 
+            hasConstraint(col.constraints, ["PK", "PRIMARY KEY", "FK", "FOREIGN KEY"]) ||
+            col.fieldName === primaryKeyCol?.fieldName
+        );
 
         let code = "";
 
         ['Insert', 'Update', 'Delete'].forEach(mode => {
+            const modePastTense = mode === 'Insert' ? 'inserted' : mode === 'Update' ? 'updated' : 'deleted';
 
             code += `\nconst ${funcName}${mode} = async (req, res) => {\n`;
 
-            // 1. Destructuring: Delete mode gets ONLY PK + Audit Codes
             let reqBodyFields = [];
 
             if (mode === 'Delete') {
-                if (primaryKeyCol) {
-                    reqBodyFields.push(primaryKeyCol.fieldName);
+                if (deleteKeyCols.length > 0) {
+                    reqBodyFields = deleteKeyCols.map(c => formatIdentifier(c.fieldName));
+                } else if (primaryKeyCol) {
+                    reqBodyFields.push(formatIdentifier(primaryKeyCol.fieldName));
                 }
                 if (enableAudit) {
                     reqBodyFields.push("company_code", "location_code");
                 }
             } else {
-                const otherFields = paramRows.filter(col => col.dataType.toLowerCase() !== "varbinary");
-                reqBodyFields = otherFields.map(col => col.fieldName);
+                const otherFields = paramRows.filter(col => (col.dataType || '').toLowerCase() !== "varbinary");
+                reqBodyFields = otherFields.map(col => formatIdentifier(col.fieldName));
+
+                const cleanPkName = primaryKeyCol ? formatIdentifier(primaryKeyCol.fieldName) : '';
+                if (mode === 'Update' && primaryKeyCol && !reqBodyFields.includes(cleanPkName)) {
+                    reqBodyFields.unshift(cleanPkName);
+                }
 
                 if (enableAudit) {
                     reqBodyFields.push("company_code", "location_code");
@@ -83,14 +104,15 @@ export const getNodeSingleCrudScript = (
             }
 
             if (reqBodyFields.length > 0) {
-                code += `  const {\n    ${reqBodyFields.join(',\n    ')}\n  } = req.body;\n`;
+                code += `  const { ${reqBodyFields.join(', ')} } = req.body;\n`;
             }
 
             if (mode !== 'Delete') {
-                const binaryFields = paramRows.filter(col => col.dataType.toLowerCase() === "varbinary");
+                const binaryFields = paramRows.filter(col => (col.dataType || '').toLowerCase() === "varbinary");
                 binaryFields.forEach(col => {
-                    code += `  let ${col.fieldName} = null;\n`;
-                    code += `  if (req.file) ${col.fieldName} = req.file.buffer;\n`;
+                    const cleanFieldName = formatIdentifier(col.fieldName);
+                    code += `  let ${cleanFieldName} = null;\n`;
+                    code += `  if (req.file) ${cleanFieldName} = req.file.buffer;\n`;
                 });
             }
 
@@ -99,20 +121,28 @@ export const getNodeSingleCrudScript = (
             code += `    await pool.request()\n`;
             code += `      .input("mode", sql.NVarChar, "${mode[0]}")\n`;
 
-            // 2. Input Bindings: Delete mode ONLY binds PK & Audit Codes
             if (mode === 'Delete') {
-                if (primaryKeyCol) {
-                    const sqlType = getSqlType(primaryKeyCol);
-                    code += `      .input("${primaryKeyCol.fieldName}", ${sqlType}, ${primaryKeyCol.fieldName})\n`;
-                }
+                const deleteColsToInput = deleteKeyCols.length > 0 ? deleteKeyCols : (primaryKeyCol ? [primaryKeyCol] : []);
+                deleteColsToInput.forEach(col => {
+                    const sqlType = getSqlType(col);
+                    const cleanFieldName = formatIdentifier(col.fieldName);
+                    code += `      .input("${cleanFieldName}", ${sqlType}, ${cleanFieldName})\n`;
+                });
                 if (enableAudit) {
                     code += `      .input("company_code", sql.NVarChar, company_code)\n`;
                     code += `      .input("location_code", sql.NVarChar, location_code)\n`;
                 }
             } else {
+                if (mode === 'Update' && primaryKeyCol && !paramRows.some(c => c.fieldName === primaryKeyCol.fieldName)) {
+                    const sqlType = getSqlType(primaryKeyCol);
+                    const cleanPkName = formatIdentifier(primaryKeyCol.fieldName);
+                    code += `      .input("${cleanPkName}", ${sqlType}, ${cleanPkName})\n`;
+                }
+
                 paramRows.forEach(col => {
                     const sqlType = getSqlType(col);
-                    code += `      .input("${col.fieldName}", ${sqlType}, ${col.fieldName})\n`;
+                    const cleanFieldName = formatIdentifier(col.fieldName);
+                    code += `      .input("${cleanFieldName}", ${sqlType}, ${cleanFieldName})\n`;
                 });
 
                 if (enableAudit) {
@@ -129,19 +159,27 @@ export const getNodeSingleCrudScript = (
                 }
             }
 
-            // 3. EXEC Query String Construction (Positional Matching)
             const execParamsList = ["@mode"];
 
+            if (primaryKeyCol && primaryKeyCol.isDefaultFallback && !paramRows.some(c => c.fieldName === primaryKeyCol.fieldName)) {
+                if (mode === 'Insert') {
+                    execParamsList.push("0");
+                } else {
+                    execParamsList.push(`@${formatIdentifier(primaryKeyCol.fieldName)}`);
+                }
+            }
+
             paramRows.forEach(col => {
+                const cleanFieldName = formatIdentifier(col.fieldName);
                 if (mode === 'Delete') {
-                    if (col.fieldName === primaryKeyCol?.fieldName) {
-                        execParamsList.push(`@${col.fieldName}`);
+                    const isKeyCol = deleteKeyCols.some(k => k.fieldName === col.fieldName);
+                    if (isKeyCol) {
+                        execParamsList.push(`@${cleanFieldName}`);
                     } else {
-                        // Integer/Decimal = 0, String/Other = ''
                         execParamsList.push(isNumericType(col.dataType) ? "0" : "''");
                     }
                 } else {
-                    execParamsList.push(`@${col.fieldName}`);
+                    execParamsList.push(`@${cleanFieldName}`);
                 }
             });
 
@@ -153,18 +191,16 @@ export const getNodeSingleCrudScript = (
                 } else if (mode === 'Update') {
                     execParamsList.push("''", "''", "@modified_by", "@modified_date");
                 } else if (mode === 'Delete') {
-                    // In delete mode, created & modified fields are passed as blank strings
                     execParamsList.push("''", "''", "''", "''");
                 }
             }
 
             const execParams = execParamsList.join(", ");
 
-            code += `      .query(\`EXEC ${procName} ${execParams}\`);\n`;
-
-            code += `\n    res.status(200).json({ success: true, message: "${funcName} ${mode.toLowerCase()}d successfully" });\n`;
+            code += `      .query(\`EXEC ${spProcName} ${execParams}\`);\n`;
+            code += `\n    res.status(200).json({ success: true, message: "${funcName.replace(/_/g, ' ')} ${modePastTense} successfully" });\n`;
             code += `  } catch (err) {\n`;
-            code += `    console.error("Error during ${funcName} ${mode.toLowerCase()}:", err);\n`;
+            code += `    console.error("Error during ${funcName.replace(/_/g, ' ')} ${mode.toLowerCase()}:", err);\n`;
             code += `    res.status(500).json({ message: err.message || "Internal Server Error" });\n`;
             code += `  }\n`;
             code += `};\n`;
@@ -173,43 +209,65 @@ export const getNodeSingleCrudScript = (
         return code;
     };
 
-    // -------- HEADER CRUD --------
+    // 🔹 Merge Detail fields into Main Table rows if toggle is OFF (false)
+    let allMainRows = [];
+
+    validRows.forEach(col => {
+        if (col.dataType?.toUpperCase() === "GRID") {
+            const rawGridName = col.fieldName;
+            const isSeparateTable = detailsTableTypes[rawGridName] === true;
+
+            if (!isSeparateTable) {
+                // Find matching details table data and append to main rows
+                const matchTable = detailsTables.find(dt => dt.gridName === rawGridName);
+                if (matchTable && matchTable.rowData) {
+                    const validDetailRows = getValidRows(matchTable.rowData);
+                    allMainRows.push(...validDetailRows);
+                }
+            }
+        } else {
+            allMainRows.push(col);
+        }
+    });
+
     let script = `// Auto-generated Node.js CRUD for ${procName}\n`;
+    script += buildNodeCrud(cleanName, procName, allMainRows);
 
-    script += buildNodeCrud(name, procName, validRows);
-
-    // -------- MULTI DETAILS CRUD --------
     let exportFunctions = [
-        `${name}Insert`,
-        `${name}Update`,
-        `${name}Delete`
+        `${cleanName}Insert`,
+        `${cleanName}Update`,
+        `${cleanName}Delete`
     ];
 
+    // 🔹 Generate CRUD for separate details tables ONLY if toggle is ON (true)
     if (detailsTables && detailsTables.length > 0) {
-
         detailsTables.forEach(detailTable => {
+            const rawGridName = detailTable.gridName;
+            const isSeparateTable = detailsTableTypes[rawGridName] === true;
 
-            const gridName = detailTable.gridName;
+            // Skip generating separate CRUD functions if user chose main table merge
+            if (!isSeparateTable) return;
 
-            const detailRows =
-                detailTable.rowData?.filter(r => r.fieldName) || [];
+            const cleanGridName = formatIdentifier(rawGridName);
+            const detailRows = detailTable.rowData?.filter(r => r.fieldName) || [];
 
             if (detailRows.length === 0) return;
 
-            const detailsProcName = `sp_${name}_${gridName}`;
+            const detailsProcName = formatProcedureName(`sp_${rawName}_${rawGridName}`);
+            const detailFuncName = `${cleanName}_${cleanGridName}`;
 
-            script += `\n\n// ---- ${gridName} DETAILS CRUD ----\n`;
+            script += `\n\n// ---- ${rawGridName} DETAILS CRUD ----\n`;
 
             script += buildNodeCrud(
-                `${name}${gridName}`,
+                detailFuncName,
                 detailsProcName,
                 detailRows
             );
 
             exportFunctions.push(
-                `${name}${gridName}Insert`,
-                `${name}${gridName}Update`,
-                `${name}${gridName}Delete`
+                `${detailFuncName}Insert`,
+                `${detailFuncName}Update`,
+                `${detailFuncName}Delete`
             );
         });
     }

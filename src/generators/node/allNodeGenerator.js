@@ -16,18 +16,6 @@ export const getAllNodeSingleCrudScripts = () => {
 
     savedScreens.forEach(screen => {
 
-        const fakeGridRef = {
-            current: {
-                api: {
-                    forEachNode: (callback) => {
-                        (screen.rowData || []).forEach(row => {
-                            callback({ data: row });
-                        });
-                    }
-                }
-            }
-        };
-
         finalScript += `
 // =============================================
 // SCREEN : ${screen.screenName}
@@ -37,10 +25,11 @@ export const getAllNodeSingleCrudScripts = () => {
 `;
 
         finalScript += getNodeSingleCrudScript(
-    fakeGridRef,
-    screen.objectRowData,
-    screen.detailsTables || []
-);
+            screen.rowData || [],
+            screen.objectRowData || [],
+            screen.detailsTables || [],
+            screen.enableAudit || false
+        );
 
         finalScript += `\n\n`;
     });
@@ -58,18 +47,6 @@ export const getAllNodeLoopCrudScripts = () => {
 
     savedScreens.forEach(screen => {
 
-        const fakeGridRef = {
-            current: {
-                api: {
-                    forEachNode: (callback) => {
-                        (screen.rowData || []).forEach(row => {
-                            callback({ data: row });
-                        });
-                    }
-                }
-            }
-        };
-
         finalScript += `
 // =============================================
 // SCREEN : ${screen.screenName}
@@ -79,10 +56,11 @@ export const getAllNodeLoopCrudScripts = () => {
 `;
 
         finalScript += getNodeLoopCrudScripts(
-    fakeGridRef,
-    screen.objectRowData,
-    screen.detailsTables || []
-);
+            screen.rowData || [],
+            screen.objectRowData || [],
+            screen.detailsTables || [],
+            screen.enableAudit || false
+        );
 
         finalScript += `\n\n`;
     });
@@ -99,18 +77,6 @@ export const getAllNodeCrudScripts = () => {
     let finalScript = "";
 
     savedScreens.forEach(screen => {
-
-        const fakeGridRef = {
-            current: {
-                api: {
-                    forEachNode: (callback) => {
-                        (screen.rowData || []).forEach(row => {
-                            callback({ data: row });
-                        });
-                    }
-                }
-            }
-        };
 
         finalScript += `
 // =============================================
@@ -129,10 +95,11 @@ export const getAllNodeCrudScripts = () => {
 `;
 
         finalScript += getNodeSingleCrudScript(
-    fakeGridRef,
-    screen.objectRowData,
-    screen.detailsTables || []
-);
+            screen.rowData || [],
+            screen.objectRowData || [],
+            screen.detailsTables || [],
+            screen.enableAudit || false
+        );
 
         finalScript += `\n`;
 
@@ -146,10 +113,11 @@ export const getAllNodeCrudScripts = () => {
 `;
 
         finalScript += getNodeLoopCrudScripts(
-    fakeGridRef,
-    screen.objectRowData,
-    screen.detailsTables || []
-);
+            screen.rowData || [],
+            screen.objectRowData || [],
+            screen.detailsTables || [],
+            screen.enableAudit || false
+        );
 
         finalScript += `\n\n`;
     });
